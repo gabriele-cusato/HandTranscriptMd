@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(cd \"C:/Projects/pluginObsidian/handWrittenMarkdownConverter/obsidian-sample-plugin\" && node esbuild.config.mjs production && bash cloudDeploy.sh)",
+      "WebFetch(domain:groups.google.com)",
+      "WebFetch(domain:css-tricks.com)",
+      "WebFetch(domain:chromium.googlesource.com)",
+      "WebFetch(domain:github.com)"
+    ]
+  }
+}
