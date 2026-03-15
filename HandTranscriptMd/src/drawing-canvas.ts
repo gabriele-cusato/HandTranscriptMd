@@ -48,6 +48,8 @@ export class DrawingCanvas {
 	private historyIdx = -1;
 	// Flag per sapere se la gomma ha modificato qualcosa durante un drag
 	private eraserChanged = false;
+	// Callback invocato quando l'altezza del canvas cambia (auto-expand)
+	private resizeCb: (() => void) | null = null;
 
 	// Altezza di default delle settings (usata per reset su clear)
 	private defaultHeight: number;
@@ -66,9 +68,6 @@ export class DrawingCanvas {
 	private boundDown: (e: PointerEvent) => void;
 	private boundMove: (e: PointerEvent) => void;
 	private boundUp: (e: PointerEvent) => void;
-	private boundBeforeInput: ((e: Event) => void) | null = null;
-	// Riferimento al container per il check "tap fuori"
-	private container: HTMLElement | null = null;
 	// Callback debug: se impostato, mostra Notice all'utente per ogni evento IME/touch
 	private debugFn: ((msg: string) => void) | null = null;
 
@@ -78,19 +77,7 @@ export class DrawingCanvas {
 		this.canvas.height = height;
 		this.defaultHeight = defaultHeight;
 		this.mobileMode = mobileMode;
-		this.container = container;
 		this.debugFn = debugFn;
-		// HANDWRITING ANDROID — problema aperto, vedi CLAUDE.md per storico tentativi.
-		// Safety net: blocca beforeinput durante il disegno (utile anche in fullscreen)
-		if (mobileMode) {
-			this.boundBeforeInput = (e: Event) => {
-				if (this.isDrawing) {
-					this.debugFn?.('🚫 beforeinput bloccato');
-					e.preventDefault();
-				}
-			};
-			document.addEventListener('beforeinput', this.boundBeforeInput, true);
-		}
 		this.canvas.classList.add('hwm_canvas');
 		// touch-action: none sul canvas previene scroll/zoom durante il disegno
 		this.canvas.style.setProperty('touch-action', 'none', 'important');
@@ -115,6 +102,37 @@ export class DrawingCanvas {
 	/* --- API pubblica --- */
 
 	onChange(cb: () => void) { this.changeCb = cb; }
+	// Registra callback per quando l'altezza cambia (utile per auto-scroll nell'overlay)
+	onResize(cb: () => void) { this.resizeCb = cb; }
+	// Abilita scroll manuale con il dito sul canvas.
+	// touch-action resta 'none' (la penna non trigga scroll del browser),
+	// il dito scrolla il container via JS.
+	allowFingerScroll(scrollContainer: HTMLElement) {
+		let scrolling = false;
+		let startY = 0;
+		let startScroll = 0;
+
+		this.canvas.addEventListener('pointerdown', (e: PointerEvent) => {
+			if ((e.pointerType || 'pen') !== 'touch') return;
+			scrolling = true;
+			startY = e.clientY;
+			startScroll = scrollContainer.scrollTop;
+			this.canvas.setPointerCapture(e.pointerId);
+		});
+
+		this.canvas.addEventListener('pointermove', (e: PointerEvent) => {
+			if (!scrolling || (e.pointerType || 'pen') !== 'touch') return;
+			e.preventDefault();
+			scrollContainer.scrollTop = startScroll + (startY - e.clientY);
+		});
+
+		const stop = (e: PointerEvent) => {
+			if ((e.pointerType || 'pen') !== 'touch') return;
+			scrolling = false;
+		};
+		this.canvas.addEventListener('pointerup', stop);
+		this.canvas.addEventListener('pointerleave', stop);
+	}
 
 	setMode(mode: DrawMode) { this.mode = mode; }
 	getMode(): DrawMode { return this.mode; }
@@ -187,11 +205,6 @@ export class DrawingCanvas {
 		this.canvas.removeEventListener('pointermove', this.boundMove);
 		this.canvas.removeEventListener('pointerup', this.boundUp);
 		this.canvas.removeEventListener('pointerleave', this.boundUp);
-		// Rimuove listener beforeinput (registrato solo in mobileMode)
-		if (this.boundBeforeInput) {
-			document.removeEventListener('beforeinput', this.boundBeforeInput, true);
-			this.boundBeforeInput = null;
-		}
 	}
 
 	/* --- History --- */
@@ -312,6 +325,8 @@ export class DrawingCanvas {
 			if (this.currentStroke) {
 				this.drawFullStroke(this.currentStroke);
 			}
+			// Notifica chi ascolta (overlay auto-scroll)
+			this.resizeCb?.();
 
 			if (progress < 1) {
 				this.animFrameId = requestAnimationFrame(step);

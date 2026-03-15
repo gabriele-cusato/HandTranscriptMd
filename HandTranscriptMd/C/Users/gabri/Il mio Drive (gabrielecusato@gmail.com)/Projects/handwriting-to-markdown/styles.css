@@ -12,26 +12,6 @@
 	margin: 8px 0;
 	/* Sfondo SEMPRE bianco (anche in dark mode) */
 	background: #ffffff;
-	/* Riabilita pointer-events (i wrapper CM6 sopra hanno pointer-events: none
-	   per non bloccare l'hit-test dell'handwriting Android) */
-	pointer-events: auto;
-}
-
-/* Variante wiki ![[svg]]:
-   La classe hwm_container viene aggiunta DIRETTAMENTE allo span
-   .internal-embed di Obsidian (nessun wrapper esterno, per non
-   spostare i nodi CM6 e causare crash del virtual DOM).
-   L'immagine è già renderizzata da Obsidian; noi aggiungiamo solo
-   i bottoni come figli dello span. */
-.hwm_container--wiki {
-	background: transparent; /* l'SVG ha già il suo sfondo */
-	width: 100%;
-	box-sizing: border-box;
-}
-.hwm_container--wiki img {
-	display: block;
-	width: 100%;
-	height: auto;
 }
 
 /* --- Toolbar in alto a destra --- */
@@ -282,12 +262,11 @@
    INLINE PREVIEW — Vista nel documento
    ======================================== */
 
-/* --- Bottoni inline (X, converti, comprimi) ---
-   Posizionati in alto a sinistra per non coprire il bottone </> di Obsidian */
+/* --- Bottoni inline (comprimi, converti, elimina) --- */
 .hwm_inline-buttons {
 	position: absolute;
 	top: 6px;
-	left: 6px;
+	right: 6px;
 	z-index: 5;
 	display: flex;
 	gap: 4px;
@@ -330,134 +309,90 @@
 	overflow: hidden;
 }
 
-/* Preview SVG via background-image (nessun <img> nel DOM per non
-   interferire con l'handwriting Android dentro cm-content) */
-.hwm_preview-bg {
+/* Immagine SVG che riempie la larghezza del container */
+.hwm_preview-img {
+	display: block;
 	width: 100%;
-	height: 0; /* l'altezza è data da padding-bottom (aspect ratio) */
-	background-size: 100% auto;
-	background-repeat: no-repeat;
-	background-position: top left;
+	height: auto;
 	pointer-events: none; /* il click è gestito dal div padre */
 }
 
 /* ========================================
-   PANNELLO PORTALE — Fuori da cm-content
-   Contiene tutti i bottoni del formato wiki.
-   Vive in document.body → zero impatto su
-   cm-content → non rompe handwriting Android
+   OVERLAY — Editor fullscreen
    ======================================== */
 
-/* Pannello floating con tutti i bottoni (nuovo formato ![[svg]]) */
-.hwm_portal-panel {
-	position: fixed; /* coordinate viewport, aggiornate via RAF */
-	z-index: 100;
-	display: flex;
-	align-items: center;
-	gap: 0; /* spacing via margin-right sui .hwm_btn */
-	padding: 3px 6px;
-	border-radius: 6px;
-	background: rgba(240, 240, 240, 0.95);
-	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+/* Blocca scroll sul body quando l'overlay è aperto */
+body.hwm_no-scroll {
+	overflow: hidden !important;
 }
 
-/* Bottone cerchio singolo (formato legacy) */
-.hwm_portal-btn {
-	position: fixed; /* coordinate viewport, aggiornate via JS */
-	z-index: 100;
-	/* Cerchio perfetto: dimensioni fisse con !important per sovrascrivere
-	   gli stili globali di Obsidian sui button che aggiungono padding */
-	width: 36px !important;
-	height: 36px !important;
-	min-width: 36px !important;
-	min-height: 36px !important;
-	padding: 0 !important;
-	border-radius: 50% !important;
-	border: none !important;
-	background: var(--interactive-accent) !important;
-	color: #ffffff !important;
-	cursor: pointer;
+/* --- Backdrop: sfondo scuro + blur --- */
+.hwm_overlay-backdrop {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 9999;
+	background: rgba(0, 0, 0, 0.5);
+	backdrop-filter: blur(6px);
+	-webkit-backdrop-filter: blur(6px);
 	display: flex;
-	align-items: center;
-	justify-content: center;
-	overflow: hidden; /* evita che l'SVG allarghi il bottone */
-	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-	transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-.hwm_portal-btn svg {
-	width: 18px !important;
-	height: 18px !important;
-	flex-shrink: 0;
-	stroke: #ffffff !important; /* forza icona bianca indipendentemente da currentColor */
-}
-.hwm_portal-btn:hover {
-	transform: scale(1.1);
-	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+	align-items: stretch;
+	justify-content: stretch;
 }
 
-/* ========================================
-   DRAWING MODAL — Editor come overlay
-   ======================================== */
-
-.hwm_modal {
-	width: 95vw !important;
-	max-width: 95vw !important;
-	height: 90vh;
-	display: flex;
-	flex-direction: column;
-}
-.hwm_modal .modal-content {
-	flex: 1;
-	padding: 0;
+/* --- Pannello editor con cornice spessa --- */
+.hwm_overlay-panel {
+	position: absolute;
+	top: 12px;
+	left: 12px;
+	right: 12px;
+	bottom: 12px;
+	border: 4px solid #444;
+	border-radius: 12px;
 	overflow: hidden;
 	display: flex;
 	flex-direction: column;
+	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+.hwm_overlay-panel--dark {
+	border-color: rgba(255, 255, 255, 0.25);
 }
 
-/* ========================================
-   EDITOR VIEW — Tab dedicata al disegno
-   ======================================== */
-
-/* Container principale dell'editor view */
-.hwm_editor-view {
-	display: flex;
-	flex-direction: column;
-	height: 100%;
-}
-
-/* --- Top bar: ← a sinistra | toolbar a destra --- */
-.hwm_editor-topbar {
+/* --- Top bar (bottone ← + toolbar) --- */
+.hwm_overlay-topbar {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
 	padding: 6px 8px;
 	background: rgba(240, 240, 240, 0.95);
 	border-bottom: 1px solid #ddd;
 	flex-shrink: 0;
 	gap: 8px;
 }
-.hwm_editor-topbar--dark {
+.hwm_overlay-topbar--dark {
 	background: rgba(40, 40, 40, 0.97);
 	border-bottom-color: #444;
 }
 
-/* Bottone ← (indietro, a sinistra) */
+/* --- Bottone ← (indietro) --- */
 .hwm_back-btn {
 	flex-shrink: 0;
 }
 
-/* Toolbar dentro l'editor view: posizione statica, allineata a destra */
-.hwm_editor-toolbar {
+/* --- Toolbar dentro l'overlay: posizione statica (non absolute) --- */
+.hwm_overlay-toolbar-inner {
 	position: static !important;
 	top: auto !important;
 	right: auto !important;
+	flex: 1;
 	box-shadow: none !important;
 	background: transparent !important;
 	padding: 0 !important;
 }
 
-/* --- Scroll container per il canvas nell'editor --- */
-.hwm_editor-scroll {
+/* --- Scroll container per il canvas nell'overlay --- */
+.hwm_overlay-scroll {
 	flex: 1;
 	overflow-y: auto;
 	overflow-x: hidden;
