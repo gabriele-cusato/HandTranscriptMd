@@ -17,6 +17,16 @@
 	pointer-events: auto;
 }
 
+/* TEST B: limita l'altezza dell'immagine SVG handwriting nel documento.
+   Ipotesi: l'SVG dopo auto-expand supera i 300px → copre più area →
+   aumenta l'interferenza con la proximity detection handwriting Android
+   (40dp dal bordo). Limitando a 300px riduciamo l'area CE=false.
+   object-fit: contain mantiene le proporzioni senza tagliare il disegno. */
+.internal-embed[src*="_handwriting/"] img {
+	max-height: 300px;
+	object-fit: contain;
+}
+
 /* Variante wiki ![[svg]]:
    La classe hwm_container viene aggiunta DIRETTAMENTE allo span
    .internal-embed di Obsidian (nessun wrapper esterno, per non

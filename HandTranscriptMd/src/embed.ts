@@ -89,6 +89,12 @@ function setupMutationObserver(plugin: HandwritingPlugin) {
 		// Marca subito come decorato per evitare doppia elaborazione
 		span.dataset.hwmDecorated = '1';
 
+		// TEST A: pointer-events: none sullo span.
+		// Ipotesi: Chrome usa lo stesso hit-test dei pointer events per la
+		// proximity detection dell'handwriting → con none, ignora lo span e
+		// trova il cm-content[ce=true] sottostante → handwriting torna attivo.
+		span.style.pointerEvents = 'none';
+
 		// NESSUNA modifica allo span dentro cm-content.
 		// Lo lasciamo identico a un'immagine normale: nessuna classe extra,
 		// nessun figlio aggiunto. Questo evita di rompere l'handwriting Android

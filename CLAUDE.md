@@ -207,6 +207,14 @@ cd C:\Projects\pluginObsidian\handWrittenMarkdownConverter\HandTranscriptMd; nod
 - Come distinguerle: `span.closest('.cm-editor')` vs `span.closest('.markdown-reading-view')`
 - Questo riduce il CE=false a un'area minima → handwriting dovrebbe funzionare nelle righe di testo circostanti
 
+**Idea — Modalità handwriting / preview (switch globale nelle impostazioni)**:
+- L'utente sceglie tra due modalità tramite un toggle nelle impostazioni (o un comando da palette):
+  - **Modalità handwriting**: i riquadri mostrano solo un piccolo badge/placeholder nel documento (niente SVG piena). Tappando il badge si apre la tab editor. L'handwriting Android funziona nel testo circostante.
+  - **Modalità preview**: i riquadri mostrano l'SVG completa inline, come ora. Niente handwriting Android, ma si vede il disegno direttamente nel documento.
+- La modalità si potrebbe cambiare anche al volo senza ricaricare Obsidian (il MutationObserver ridecorarebbe gli span al cambio impostazione)
+- Su PC (nessun conflitto handwriting) la modalità preview sarebbe sempre quella giusta; su Android si sceglierebbe in base al workflow del momento
+- Implementazione: aggiungere `hwmMode: 'handwriting' | 'preview'` a `HandwritingSettings`; in `tryDecorate()` controllare la modalità e decidere se mostrare badge o SVG piena
+
 ### Altri task aperti
 
 1. **Migliorare il riconoscimento dei caratteri speciali markdown** — `src/recognizer.ts` + `src/md-parser.ts`:
