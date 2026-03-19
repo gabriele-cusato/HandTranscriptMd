@@ -23,3 +23,5 @@ data.json
 
 # Plugin di riferimento esterno (non fa parte di questo progetto)
 obsidian_ink/
+
+.vs/
