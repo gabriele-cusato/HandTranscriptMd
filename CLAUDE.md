@@ -40,92 +40,126 @@ Un plugin Obsidian che inserisce un **riquadro canvas inline** in un file `.md` 
 
 ---
 
-## Stato attuale — Fase 2 COMPLETATA, Fase 3 IN CORSO (fix Android handwriting)
+## Stato attuale — Fase 3 COMPLETATA (editor in tab separata)
 
 ### File del plugin (`HandTranscriptMd/src/`)
 
 | File | Cosa fa |
 |------|---------|
-| `main.ts` | Entry point: registra embed, comando "Insert handwriting block", ribbon icon, settings |
+| `main.ts` | Entry point: registra embed, editor view, comando, ribbon, settings, `previewCallbacks` per sync inline↔tab |
 | `settings.ts` | Impostazioni: cartella SVG, dimensioni canvas, sfondo, lingue OCR, chiave API Gemini (campo password) |
-| `drawing-canvas.ts` | Motore disegno Canvas API: Bézier quadratiche, penna, gomma parziale, undo/redo history-based, auto-expand, righe foglio |
+| `drawing-canvas.ts` | Motore disegno Canvas API: Bézier quadratiche, penna, gomma parziale, undo/redo history-based, auto-expand, righe foglio, `allowFingerScroll()` |
 | `svg-utils.ts` | Conversione tratti ↔ SVG (dati riedit in `<desc>` JSON), righe e sfondo inclusi nell'SVG |
-| `embed.ts` | Code block processor, toolbar, bottone Converti collegato (OCR → markdown → sostituisce code block), `svgToBase64Png()` helper |
+| `embed.ts` | Code block processor → preview SVG inline con 3 bottoni (X, converti, comprimi) in alto a sinistra + bottone portale in document.body; preview non cliccabile |
+| `editor-view.ts` | `DrawingEditorView extends ItemView` — editor canvas in tab Obsidian dedicata, toolbar completa, scroll, auto-save |
 | `recognizer.ts` | `IRecognizer` interface + `GeminiRecognizer`: invia PNG base64 a Gemini API, restituisce testo |
 | `md-parser.ts` | `parseMarkdown()`: post-processa testo OCR riga per riga applicando sintassi markdown |
 
+### Architettura attuale (Fase 3+)
+
+**Due formati supportati:**
+- **NUOVO (default)**: `![[_handwriting/hw_xxx.svg]]` — SVG visibile nativamente anche senza plugin
+- **LEGACY**: `` ```handwriting {"id":..., "svg":...}``` `` — vecchio formato, mantenuto per compatibilità
+
+**Preview inline — Nuovo formato wiki:**
+- Obsidian renderizza `![[svg]]` come `<span class="internal-embed image-embed">[img][/img]</span>`
+- **MutationObserver su `document.body`** intercetta gli span con `src*="_handwriting/"` non appena appaiono nel DOM (funziona sia in reading view che in live preview dove il post-processor non viene chiamato)
+- `tryDecorate()` con flag `data-hwm-decorated="1"` per evitare doppia elaborazione; ritenta dopo 150ms se la classe `image-embed` non è ancora presente (caricamento asincrono)
+- **ZERO modifica al DOM dello span** — nessuna classe aggiunta, nessun figlio inserito, nessuno stile inline. Lo span resta identico a qualsiasi altra immagine Obsidian
+- **Pannello portale** (`hwm_portal-panel`) in `document.body` con 4 bottoni: ✏️ (apre tab editor), 📄 (converti OCR), ↕️ (comprimi/espandi), ✕ (elimina). Posizionato via RAF + `getBoundingClientRect()` + `position: fixed`
+- **Refresh immagine**: `previewCallbacks.set(embedId, ...)` aggiorna `img.src` con cache-bust `?t=timestamp` dopo ogni salvataggio dalla tab editor (Obsidian non aggiorna automaticamente `![[svg]]` in live preview quando il file cambia)
+- **NO data-URI**: il src dell'img resta sempre l'URL vault (`http://localhost/_capacitor_file_/...`) — un data-URI verrebbe interpretato da Android come drawing surface
+
+**Preview inline — Formato legacy:**
+- Mostra l'SVG come CSS `background-image` su un `<div>` (no `<img>`)
+- 3 bottoni inline (`<div role="button">`, non `<button>`) dentro il container del code block
+- Bottone portale singolo (`hwm_portal-btn`, cerchio matita) in `document.body` per aprire la tab editor
+
+**Editor in tab separata (`editor-view.ts`):**
+- `DrawingEditorView extends ItemView` di Obsidian
+- Canvas in un DOM completamente separato da CodeMirror → **nessun conflitto handwriting Android**
+- Top bar: bottone ← a sinistra (chiude tab), toolbar completa a destra
+- Scroll container: `overflow-y: auto` per canvas più grandi dello schermo
+- Auto-scroll: callback `onResize` su DrawingCanvas → scrolla verso il basso durante auto-expand
+- Finger scroll: `allowFingerScroll(scrollContainer)` — `touch-action` resta `none` (penna non scrolla), dito scrolla il container via `setPointerCapture` + JS manuale
+- Resize handle visibile ma `pointer-events: none` (no drag manuale, solo auto-expand)
+- Auto-save debounced 2s + callback `plugin.refreshPreview()` aggiorna la preview inline
+- Converti/Elimina funzionano anche dalla tab (manipolano il .md via `sourcePath`)
+
 ### Funzionalità implementate
 
-- **Canvas inline** nel markdown via code block `handwriting`
-- **Disegno diretto** — click sul blocco = disegno immediato (no click "Edit")
+- **Preview SVG inline** nel markdown via code block `handwriting` (immagine statica, no canvas)
+- **Editor in tab dedicata** — click sulla preview apre una tab Obsidian separata
 - **Curve smooth** — Bézier quadratiche con tecnica midpoint
 - **Gomma parziale** — cancella solo i punti toccati, taglia i tratti in segmenti
 - **Undo/Redo** — basato su history di stati (funziona sia per disegno che per gomma)
-- **Auto-expand** — il canvas si espande con animazione smooth (requestAnimationFrame, ease-out cubico)
-- **Resize manuale** — handle trascinabile in basso
+- **Auto-expand** — il canvas si espande con animazione smooth + auto-scroll nel container
 - **Clear → reset** alla dimensione di default con animazione
 - **Righe orizzontali** — foglio a righe (32px), sia nel canvas che nell'SVG
 - **Temi sfondo** — chiaro/scuro/custom con color picker nelle impostazioni
 - **Remapping colori automatico** — i tratti si adattano al cambio tema (nero↔bianco, blu↔azzurro, ecc.)
 - **Toolbar completa** — penna, gomma, 4 colori, undo, redo, clear, converti, salva, elimina (X)
-- **Elimina riquadro** — bottone X rimuove code block dal .md e cancella SVG
-- **Auto-save** — salvataggio debounced 2s dopo l'ultima modifica
+- **Elimina riquadro** — da inline (3 bottoni) o da tab editor
+- **Auto-save** — salvataggio debounced 2s + refresh preview inline
 - **SVG standard** — file `.svg` nella cartella `_handwriting/`, visibili da qualsiasi dispositivo
 - **Palette colori adattiva** — colori scuri su sfondo chiaro, colori chiari su sfondo scuro
-- **Resize handle tematizzato** — si adatta al tema scuro
-- **OCR via Gemini** — bottone Converti: SVG → PNG base64 → Gemini 3.1 Flash Lite → testo → `md-parser` → sostituisce code block nel `.md`
-- **Archiviazione SVG** — dopo la conversione, il file SVG viene spostato in `_handwriting/_converted/AAAA-MM-GG_HH-MM-SS.svg`
+- **OCR via Gemini** — SVG → PNG base64 → Gemini 3.1 Flash Lite → `md-parser` → sostituisce code block
+- **Archiviazione SVG** — dopo la conversione, SVG spostato in `_handwriting/_converted/AAAA-MM-GG_HH-MM-SS.svg`
 - **Settings OCR** — chiave API Gemini (campo password) + lingue OCR configurabili (default: `it, en`)
-- **Supporto Android** — comportamenti differenziati tra Windows e Android:
-  - Toolbar compatta su mobile (▼/▲ toggle), espansa su Windows
-  - Icone SVG inline (mappa `ICONS` in `embed.ts`) — identiche su Windows e Android, nessuna dipendenza da `setIcon`/Lucide bundled — **RISOLTO**
-  - Disegno solo con penna (`pointerType === 'pen'`), dito ignorato su mobile per il disegno
-  - Focus fix multi-livello: `inputmode="none"` + listener `beforeinput` in capture phase + blur `.cm-editor` + `canvas.focus()` su pointerdown penna
-  - Cerchi colori: bottoni colore sono `<div>` (non `<button>`) + dimensioni forzate via `style.setProperty(..., 'important')` — **RISOLTO**
+- **Supporto Android** — penna disegna, dito scrolla, nessun conflitto handwriting
+- **Comprimi/Espandi** — preview inline si può compattare all'altezza di default (freccia con rotazione 180°)
+- **Bottone portale** — pulsante cerchio con icona matita in `document.body` (fuori da cm-content), si posiziona sopra il riquadro via RAF + getBoundingClientRect, si nasconde automaticamente se la tab editor è già aperta o il riquadro esce dal viewport
+- **Preview non tappabile** — click handler rimosso; l'unico modo per aprire l'editor è il bottone portale
 
 ### Embedding nel markdown
 
+**Nuovo formato (default):**
+```markdown
+![[_handwriting/hw_abc123.svg]]
+```
+Il file SVG è visibile come immagine anche senza il plugin. I tratti sono salvati come JSON in `<desc class="hwm-strokes">` dentro l'SVG.
+
+**Legacy (backward compat):**
 ````markdown
 ```handwriting
 {"id":"hw_abc123","svg":"_handwriting/hw_abc123.svg"}
 ```
 ````
 
-### Deploy
+### Deploy (comandi copia-incolla per PowerShell)
 
-```bash
-# Sorgente plugin
-cd C:/Projects/pluginObsidian/handWrittenMarkdownConverter/HandTranscriptMd
-
+```powershell
 # Build + deploy al vault locale (solo PC)
-node esbuild.config.mjs production && bash deploy.sh
+cd C:\Projects\pluginObsidian\handWrittenMarkdownConverter\HandTranscriptMd; node esbuild.config.mjs production; bash deploy.sh
 
 # Build + deploy su Google Drive (per testare su tablet Android)
-node esbuild.config.mjs production && bash cloudDeploy.sh
-
-# Vault locale di test
-C:/Projects/CLIENTI/IOTTI/IOTTI_APP/_docs/handwriting-to-markdown/
-# Plugin installato in .obsidian/plugins/handwriting-to-markdown/
-
-# Vault Google Drive (sincronizzato con tablet)
-C:/Users/gabri/Il mio Drive (gabrielecusato@gmail.com)/Projects/handwriting-to-markdown/
+cd C:\Projects\pluginObsidian\handWrittenMarkdownConverter\HandTranscriptMd; node esbuild.config.mjs production; bash cloudDeploy.sh
 ```
+
+### Percorsi vault
+
+- **Vault locale di test:** `C:\Projects\CLIENTI\IOTTI\IOTTI_APP\_docs\handwriting-to-markdown\`
+  - Plugin in `.obsidian\plugins\handwriting-to-markdown\`
+- **Vault Google Drive (tablet):** `C:\Users\gabri\Il mio Drive (gabrielecusato@gmail.com)\Projects\handwriting-to-markdown\`
 
 ### Come sviluppare
 
-```bash
+```powershell
 # Dev mode (watch)
-npm run dev
+cd C:\Projects\pluginObsidian\handWrittenMarkdownConverter\HandTranscriptMd; npm run dev
+
 # Dopo ogni modifica per testare su PC:
-bash deploy.sh
+cd C:\Projects\pluginObsidian\handWrittenMarkdownConverter\HandTranscriptMd; node esbuild.config.mjs production; bash deploy.sh
+
 # Dopo ogni modifica per testare su tablet Android:
-bash cloudDeploy.sh
+cd C:\Projects\pluginObsidian\handWrittenMarkdownConverter\HandTranscriptMd; node esbuild.config.mjs production; bash cloudDeploy.sh
+
 # In Obsidian: Ctrl+P → "Reload app without saving"
 ```
 
 ---
 
-## Note architetturali — Fase 2 (sessione corrente)
+## Note architetturali
 
 ### Come funziona il flusso OCR
 
@@ -151,7 +185,37 @@ bash cloudDeploy.sh
 
 ---
 
-## Prossimi passi — Da fare nella prossima sessione
+## Prossimi passi
+
+### BUG handwriting — Test da fare in ordine
+
+**Test A — `pointer-events: none` sullo span** (1 riga, da provare per primo):
+- In `tryDecorate()`, aggiungere `span.style.pointerEvents = 'none'` dopo `span.dataset.hwmDecorated = '1'`
+- I bottoni portale (in `document.body`) continuano a funzionare
+- Verifica: con SVG riempito nel documento, l'handwriting funziona?
+- Se sì → risolto. Se no → Chrome usa DOM walk separato, pointer-events non basta
+
+**Test B — Limitare max-height dell'immagine** (se A non funziona):
+- Ipotesi: SVG vuoto (300px) non rompe, SVG riempito (500px+) rompe → è la HEIGHT del CE=false che causa il problema
+- Test empirico: aggiungere in CSS `.internal-embed[src*="_handwriting/"] img { max-height: 300px; object-fit: contain; }` e verificare se con un SVG alto (dopo auto-expand) l'handwriting funziona
+- Se sì → limitare max-height è la soluzione
+- Se no → l'altezza non è la causa, passare a C
+
+**Test C — Placeholder in Live Preview** (se B non funziona):
+- In live preview (span dentro `.cm-editor`), mostrare solo un piccolo badge "📝 disegno" di 40px di altezza invece dell'SVG pieno
+- L'SVG pieno appare solo in Reading View (span dentro `.markdown-reading-view`)
+- Come distinguerle: `span.closest('.cm-editor')` vs `span.closest('.markdown-reading-view')`
+- Questo riduce il CE=false a un'area minima → handwriting dovrebbe funzionare nelle righe di testo circostanti
+
+**Idea — Modalità handwriting / preview (switch globale nelle impostazioni)**:
+- L'utente sceglie tra due modalità tramite un toggle nelle impostazioni (o un comando da palette):
+  - **Modalità handwriting**: i riquadri mostrano solo un piccolo badge/placeholder nel documento (niente SVG piena). Tappando il badge si apre la tab editor. L'handwriting Android funziona nel testo circostante.
+  - **Modalità preview**: i riquadri mostrano l'SVG completa inline, come ora. Niente handwriting Android, ma si vede il disegno direttamente nel documento.
+- La modalità si potrebbe cambiare anche al volo senza ricaricare Obsidian (il MutationObserver ridecorarebbe gli span al cambio impostazione)
+- Su PC (nessun conflitto handwriting) la modalità preview sarebbe sempre quella giusta; su Android si sceglierebbe in base al workflow del momento
+- Implementazione: aggiungere `hwmMode: 'handwriting' | 'preview'` a `HandwritingSettings`; in `tryDecorate()` controllare la modalità e decidere se mostrare badge o SVG piena
+
+### Altri task aperti
 
 1. **Migliorare il riconoscimento dei caratteri speciali markdown** — `src/recognizer.ts` + `src/md-parser.ts`:
    - Il testo normale viene riconosciuto correttamente da Gemini
@@ -159,64 +223,95 @@ bash cloudDeploy.sh
    - Migliorare il prompt con few-shot examples espliciti per i simboli (es. "Se vedi `# Titolo` → scrivi `# Titolo`")
    - Valutare se `md-parser.ts` può coprire i casi che il prompt non gestisce
 
-2. **Fix handwriting Android — IN CORSO (15+ tentativi)**:
+2. **Auto-expand — animazione scattosa** — **BUG APERTO** (parzialmente risolto):
+   - Fix precedente: guard `if (this.animFrameId !== null) return` in `checkAutoExpand()` → loop up/down risolto
+   - Problema residuo: espansione scattosa invece che fluida
+   - File: `src/drawing-canvas.ts` → `animateHeight()` e `checkAutoExpand()`
 
-   ### Problema fondamentale
-   Il canvas vive dentro `cm-content[contenteditable="true"]` (l'editor CodeMirror di Obsidian). Android/Chrome attiva lo stylus handwriting-to-text a **livello nativo** quando il pennino tocca dentro/vicino (40dp) a un elemento `contenteditable`. Questo avviene **prima** di qualsiasi evento JavaScript.
+3. **Toolbar unificata Windows/Android** — **DA FARE**:
+   - Attualmente la toolbar su Windows è sempre espansa, su Android è compatta con toggle ▼/▲
+   - Obiettivo: unico codice toolbar condiviso, compatta di default su entrambe le piattaforme
+   - File coinvolti: `src/editor-view.ts` + `styles.css`
 
-   ### Perché è sempre "tutto o niente"
-   `cm-content` è un UNICO elemento `contenteditable="true"`. Qualsiasi modifica all'editabilità di un figlio contamina lo stato dell'intero editor.
+### Problemi risolti
 
-   ### Tentativi falliti e scoperte chiave
-
-   | # | Approccio | Risultato | Perché non funziona |
-   |---|-----------|-----------|---------------------|
-   | 1-8 | `touch-action: none` su `.cm-editor`/`.cm-scroller`/`.cm-content` | Handwriting resta attivo | `touch-action` controlla scroll/zoom, NON l'handwriting |
-   | 9 | `contenteditable="false"` + `handwriting="false"` sul **container** (figlio di cm-content) | Handwriting morto ovunque | Chrome tratta l'intero cm-content come blocco; un figlio false rompe tutto |
-   | 10 | CSS `-webkit-user-modify: read-only` sul container | Handwriting morto ovunque | Stesso problema: figlio dentro cm-content |
-   | 11 | `blur()` + `focus(canvas)` su `pointerenter pen` | Handwriting resta attivo | Rilevamento basato su **prossimità** al contenteditable, non sul focus |
-   | 12 | `touchstart` + `preventDefault()` + `touch-action: none` | Handwriting resta attivo | Chrome decide prima degli eventi JS |
-   | 13 | **Lock Button** — `contenteditable="false"` sul **container** (sbagliato) | Handwriting non si blocca | Il container è dentro cm-content → sbagliato mirare al container |
-   | 14 | **Iframe** — canvas dentro `<iframe>` con `document.write` | Iframe creato (confermato da debug), handwriting resta attivo | Android's handwriting detection lavora a livello WebView (un'unica View Android), vede attraverso gli iframe |
-   | 15 | **Overlay fullscreen** — pannello `position:fixed` su `document.body` + `cm-content.contenteditable="false"` mentre overlay è aperto | **PARZIALMENTE TESTATO** — handwriting ancora attivo su vecchi documenti, non testato su documento nuovo | Da verificare: testare su documento nuovo appena creato; possibile che vecchi documenti abbiano stato residuo |
-
-   ### Scoperta critica: `inputmode="none"` contamina il WebView
-   Bug confermato ([Flutter #176913](https://github.com/flutter/flutter/issues/176913)): dare focus a un elemento con `inputmode="none"` disabilita l'handwriting per l'INTERO WebView, effetto persiste fino al riavvio. **MAI usare `inputmode="none"` nel plugin.**
-
-   ### Anche il plugin Ink ha lo stesso problema
-   [Issue #156](https://github.com/daledesilva/obsidian_ink/issues/156): "Writing just puts a dot and doesn't follow pen on Android" — stessa causa, nessuna soluzione trovata.
-
-   ### Approccio attuale (tentativo 15) — DA TESTARE MEGLIO
-   Overlay quasi-fullscreen che si apre al tap sul riquadro:
-   - `document.body.appendChild(overlay)` → fuori da cm-content
-   - Quando overlay apre → `cm-content.setAttribute('contenteditable', 'false')`
-   - Quando overlay chiude → ripristina `contenteditable="true"`
-   - Backdrop semitrasparente con `backdrop-filter: blur(6px)`
-   - Pannello con margini 12px, bordi arrotondati, ombra
-   - Bottone ← in alto a sinistra, tool a destra
-   - File: `src/embed.ts` → `showMobilePreview()`, `openFullscreenEditor()`
-
-   ### Miglioramenti overlay ancora da fare
-   - **Bordi più spessi/visibili** sul pannello (attualmente `box-shadow` sottile)
-   - **Scroll interno** quando l'altezza del canvas supera quella dello schermo
-   - **Verificare handwriting** su documento NUOVO (non su documenti già aperti che potrebbero avere stato residuo)
-   - **Verificare causa** se handwriting ancora attivo: potrebbe essere che `cm-content.contenteditable="false"` non è sufficiente da solo, oppure che il timing è sbagliato
-
-3. **Auto-expand — animazione scattosa** — **BUG APERTO** (parzialmente risolto):
-   - Fix precedente: aggiunto guard `if (this.animFrameId !== null) return` in `checkAutoExpand()` per evitare restart multipli → il loop up/down è risolto
-   - Problema residuo: l'espansione avviene in modo scattoso invece di animarsi fluidamente
-   - Effetto collaterale: quando il canvas si espande oltre il viewport, la pagina scrolla bruscamente verso il basso
-   - File coinvolto: `src/drawing-canvas.ts` → `animateHeight()` e `checkAutoExpand()`
-
-4. **Toolbar unificata Windows/Android** — **DA FARE**:
-   - Attualmente la toolbar su Windows è sempre espansa e quella su Android è compatta con toggle ▼/▲
-   - Obiettivo: unico codice toolbar condiviso — compatta di default su entrambe le piattaforme
-   - File coinvolti: `src/embed.ts` + `styles.css`
-
-### Problemi risolti in passato
+- **Handwriting Android (disegno)** ✅ — risolto con editor in tab separata (`ItemView`), canvas fuori da `cm-content`
+- **Pen scroll** ✅ — penna non scrolla più, solo dito (JS manuale via `setPointerCapture`)
 - **Toolbar — tema scuro** ✅
 - **Spazio vuoto sezione colori in toolbar compatta** ✅
 - **Trashcan non cancella visualmente** ✅
+- **Bottoni inline coprivano `</>` di Obsidian** ✅ — spostati a `left: 6px`
+- **Ordine bottoni inline** ✅ — invertito: X, Converti, Freccia (da sinistra)
+- **Placeholder text** ✅ — aggiornato a "Usa il bottone matita in alto a destra per disegnare"
+- **Bottone portale non cerchio perfetto** ✅ — risolto con `width/height/min-width/min-height: 36px !important`, `padding: 0 !important`, `overflow: hidden`
+- **Icona bottone portale non visibile** ✅ — SVG con `stroke="currentColor"` non diventava bianco; risolto con `.hwm_portal-btn svg { stroke: #ffffff !important }`
+- **Bottone portale non si nasconde con editor aperto** ✅ — aggiunto check `workspace.getLeavesOfType(VIEW_TYPE_HANDWRITING).some(...)` nel RAF loop
+- **Bottone portale `position: absolute` invece di `fixed`** ✅ — `getBoundingClientRect()` restituisce coordinate viewport, non serviva aggiungere `scrollY/scrollX`
+
+### BUG APERTO — Handwriting disabilitato nel documento quando il riquadro è presente
+
+**Sintomo**: quando nel documento è presente un riquadro handwriting con un disegno (SVG non vuoto), la stylus handwriting-to-text di Android smette di funzionare nell'intero editor. Cancellare il riquadro ripristina l'handwriting. Il problema persiste tra riavvii di Obsidian.
+
+**Progressione delle scoperte**:
+
+**Fase 1 — Formato code block** (tentativi 16-26):
+- `contenteditable="false"` su wrapper CM6 → rimosso → non risolve
+- `touch-action: none` → rimosso → non risolve
+- `background-image` SVG → rimossa → non risolve
+- `<canvas>` nel DOM → rimosso → non risolve
+- Canvas in `document.body` (fuori da CM6) toccato con stylus → **rompe handwriting** — conclusione: è il canvas element quando toccato dalla stylus, non la sua posizione nel DOM
+- **Causa root fase 1**: Android WebView tratta qualsiasi `<canvas>` toccato dalla stylus come "drawing surface" e disabilita handwriting-to-text a livello di sessione WebView
+
+**Fase 2 — Passaggio a formato wiki `![[svg]]`** (sessione corrente):
+
+L'obiettivo era eliminare il `<canvas>` dal documento e mostrare solo l'`<img>` nativa di Obsidian.
+
+Problema riscontrato: l'SVG vuoto (300px di altezza) NON rompe l'handwriting. L'SVG con un disegno (altezza variabile dopo auto-expand) SÌ lo rompe — anche dopo riavvio Obsidian, anche senza mai aprire la tab editor.
+
+Cambiamenti implementati durante la fase 2:
+- Passaggio da code block a `![[svg]]` come formato principale
+- `insertHandwritingBlock()` crea il file SVG PRIMA di inserire il wikilink (altrimenti Obsidian mostra "could not be found")
+- MutationObserver su `document.body` per intercettare gli span (il post-processor non funziona per i widget CM6 immagine in live preview)
+- Fix data-URI: `img.src = data:image/svg+xml,...` → cambiato in cache-bust URL (`?t=timestamp`) perché la data-URI veniva interpretata da Android come drawing surface
+- Rimosso `addWikiOverlay` (aggiungeva `hwm_inline-buttons` come figlio dello span): la struttura dello span è ora identica a un'immagine normale
+- Pannello portale (`hwm_portal-panel`) in `document.body` con tutti e 4 i bottoni
+
+**Stato attuale**: dopo aver rimosso TUTTA la nostra decorazione dallo span (nessun figlio aggiunto, nessuna classe, nessuno stile), il problema persiste. Lo span è identico a quello di un'immagine normale Obsidian, ma l'handwriting si rompe ugualmente con l'SVG riempito.
+
+**Ipotesi residue** (non ancora testate):
+
+| # | Ipotesi | Razionale |
+|---|---------|-----------|
+| A | `pointer-events: none` sullo span | Se Chrome usa lo stesso hit-test dei pointer events per la proximity detection, potrebbe ignorare lo span e trovare il `cm-content[ce=true]` sottostante. Incerto: Chrome potrebbe fare un DOM walk separato per `contenteditable` indipendente da pointer-events |
+| B | Altezza SVG: l'empty SVG è 300px, il filled SVG è più alto (auto-expand). Un CE=false più alto copre più area → più probabile interferire con la proximity detection (40dp dal bordo). Fix: limitare max-height dell'immagine nel documento | La proximity detection è 40dp verticale — un'immagine da 500px di altezza occupa molto più "territorio" di una da 300px |
+| C | Placeholder in Live Preview | Mostrare solo un piccolo badge in live preview (dove si scrive), SVG pieno solo in Reading View. Lo span CE=false sarebbe piccolo → non interferisce |
+
+**Fonti**:
+- [Chromium Stylus Handwriting README](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/components/stylus_handwriting/README.md)
+- [ProseMirror Issue #565](https://github.com/ProseMirror/prosemirror/issues/565)
+- Plugin Ink ha lo stesso problema irrisolto ([Issue #156](https://github.com/daledesilva/obsidian_ink/issues/156))
+
+**Scoperte chiave consolidate**:
+- `inputmode="none"` contamina l'intero WebView — MAI usare
+- Empty SVG (300px) NON rompe handwriting; SVG con disegno (altezza > 300px per auto-expand) SÌ
+- data-URI come `img.src` rompe handwriting → usare sempre URL vault + cache-bust
+- Il problema è persistente tra sessioni (riavvio Obsidian) — non è corruzione di sessione temporanea
+- Rimuovere completamente la nostra decorazione (nessun figlio nello span) non risolve — la causa è nell'SVG stesso o nella sua altezza
+
+**Tentativi falliti (completo)**:
+
+| # | Approccio | Risultato |
+|---|-----------|-----------|
+| 16 | Rimuovere `beforeinput` listener globale | Non risolve |
+| 17 | `<button>` → `<div role="button">` in cm-content | Non risolve |
+| 18 | `<img>` → CSS `background-image` | Non risolve |
+| 19 | Rimuovere `contenteditable="false"` dai wrapper CM6 + `pointer-events: none` | Non risolve |
+| 20-23 | DevTools: rimuovere CE=false, touch-action, background-image, canvas dal DOM | Non risolve |
+| 24 | Editor in Modal invece di tab | Non praticabile (stylus non disegna nel modal) |
+| 25 | Bottone portale in `document.body` | Non risolve (canvas nella tab corrompe sessione) |
+| 26 | Test console: canvas fake in `document.body` toccato con stylus | Conferma: canvas + stylus = handwriting rotto |
+| 27 | Passaggio a `![[svg]]` con MutationObserver | Non risolve |
+| 28 | Rimozione totale decorazione dallo span (nessun figlio aggiunto) | Non risolve |
 
 ---
 
