@@ -170,10 +170,10 @@ bash -c "cd '/c/Projects/pluginObsidian/handWrittenMarkdownConverter/HandTranscr
 cd C:\Projects\pluginObsidian\handWrittenMarkdownConverter\HandTranscriptMd; npm run dev
 
 # Dopo ogni modifica per testare su PC:
-cd C:\Projects\pluginObsidian\handWrittenMarkdownConverter\HandTranscriptMd; node esbuild.config.mjs production; bash deploy.sh
+cd C:\Projects\pluginObsidian\handWrittenMarkdownConverter\HandTranscriptMd; node esbuild.config.mjs production; & "C:\Program Files\Git\bin\bash.exe" --login deploy.sh
 
 # Dopo ogni modifica per testare su tablet Android:
-cd C:\Projects\pluginObsidian\handWrittenMarkdownConverter\HandTranscriptMd; node esbuild.config.mjs production; bash cloudDeploy.sh
+cd C:\Projects\pluginObsidian\handWrittenMarkdownConverter\HandTranscriptMd; node esbuild.config.mjs production; & "C:\Program Files\Git\bin\bash.exe" --login cloudDeploy.sh
 
 # In Obsidian: Ctrl+P → "Reload app without saving"
 ```
