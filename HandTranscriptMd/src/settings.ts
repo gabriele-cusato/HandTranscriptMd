@@ -9,14 +9,15 @@ import type HandwritingPlugin from './main';
 export type BgMode = 'light' | 'dark' | 'custom';
 
 export interface HandwritingSettings {
-	svgFolder: string;       // cartella dove salvare i file SVG
-	canvasWidth: number;     // larghezza interna del canvas (px)
-	canvasHeight: number;    // altezza interna del canvas (px)
-	bgMode: BgMode;          // modalità sfondo
-	bgCustomColor: string;   // colore hex se bgMode === 'custom'
-	ocrLanguages: string[];  // lingue per il riconoscimento OCR (codici BCP-47, es. 'it', 'en')
-	geminiApiKey: string;    // chiave API Google Gemini per l'OCR
-	debugMode: boolean;      // mostra Notice di debug per eventi IME/touch
+	svgFolder: string;            // cartella dove salvare i file SVG
+	canvasWidth: number;          // larghezza interna del canvas (px)
+	canvasHeight: number;         // altezza interna del canvas (px)
+	bgMode: BgMode;               // modalità sfondo
+	bgCustomColor: string;        // colore hex se bgMode === 'custom'
+	ocrLanguages: string[];       // lingue per il riconoscimento OCR (codici BCP-47, es. 'it', 'en')
+	geminiApiKey: string;         // chiave API Google Gemini per l'OCR
+	debugMode: boolean;           // mostra Notice di debug per eventi IME/touch
+	hwmHandwritingMode: boolean;  // se true, mostra badge al posto dell'SVG per non bloccare l'handwriting Android
 }
 
 // Colori predefiniti per le modalità
@@ -92,6 +93,7 @@ export const DEFAULT_SETTINGS: HandwritingSettings = {
 	ocrLanguages: ['it', 'en'],   // italiano e inglese di default
 	geminiApiKey: '',
 	debugMode: false,
+	hwmHandwritingMode: false,    // default: mostra SVG piena
 };
 
 export class HandwritingSettingTab extends PluginSettingTab {
@@ -212,6 +214,25 @@ export class HandwritingSettingTab extends PluginSettingTab {
 						.filter(l => l.length > 0);
 					this.plugin.settings.ocrLanguages = langs.length > 0 ? langs : ['it', 'en'];
 					await this.plugin.saveSettings();
+				}));
+
+		// --- Modalità handwriting Android ---
+		// Se attiva, i riquadri mostrano solo una piccola anteprima (badge) invece
+		// dell'SVG a piena altezza, per non bloccare l'handwriting nei campi testo.
+		// Il disegno si apre sempre in una nuova scheda (Android) o modal (Windows).
+		new Setting(containerEl)
+			.setName('Modalità handwriting Android')
+			.setDesc(
+				'Attiva per mantenere lo stylus handwriting nel testo del documento. ' +
+				'I riquadri mostrano solo una piccola anteprima; per disegnare usa il bottone matita.'
+			)
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.hwmHandwritingMode)
+				.onChange(async (value) => {
+					this.plugin.settings.hwmHandwritingMode = value;
+					await this.plugin.saveSettings();
+					// Applica/rimuove la classe CSS sul body immediatamente
+					document.body.classList.toggle('hwm-handwriting-mode', value);
 				}));
 
 		// --- Modalità debug ---

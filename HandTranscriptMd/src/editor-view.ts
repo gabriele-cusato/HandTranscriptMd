@@ -202,8 +202,12 @@ export class DrawingEditorView extends ItemView {
 			handle.style.color = '#888';
 		}
 
-		// Auto-scroll quando il canvas si espande
-		this.canvas.onResize(() => { scrollWrap.scrollTop = scrollWrap.scrollHeight; });
+		// Auto-scroll quando il canvas si espande, ma solo se non si sta disegnando.
+		// Durante il disegno, lo scroll sposterebbe il canvas nel viewport e le
+		// coordinate del tratto salterebbero (getBoundingClientRect cambia).
+		this.canvas.onResize(() => {
+			if (!this.canvas?.isPointerDown()) scrollWrap.scrollTop = scrollWrap.scrollHeight;
+		});
 
 		// --- Event handlers ---
 		const cv = this.canvas;
@@ -426,6 +430,8 @@ export class DrawingModal extends Modal {
 	private sourcePath: string;
 	private canvas: DrawingCanvas | null = null;
 	private saveTimer: ReturnType<typeof setTimeout> | null = null;
+	// Callback invocato alla chiusura del modal (usato per nascondere/mostrare il bottone matita)
+	onClosed?: () => void;
 
 	constructor(app: App, plugin: HandwritingPlugin, embedId: string, svgPath: string, sourcePath: string) {
 		super(app);
@@ -448,6 +454,8 @@ export class DrawingModal extends Modal {
 			this.canvas = null;
 		}
 		if (this.saveTimer) clearTimeout(this.saveTimer);
+		// Notifica il chiamante che il modal è stato chiuso
+		this.onClosed?.();
 	}
 
 	private async buildEditor() {
@@ -458,8 +466,10 @@ export class DrawingModal extends Modal {
 		const lineColor = getEffectiveLineColor(this.plugin.settings);
 		el.style.backgroundColor = bgColor;
 
-		// Top bar con toolbar (nessun backBtn: il Modal ha già la X nativa)
-		const topbar = el.createDiv({ cls: 'hwm_editor-topbar' });
+		// Top bar con toolbar (nessun backBtn: il Modal ha già la X nativa).
+		// La classe --modal centra la toolbar orizzontalmente (nel DrawingEditorView
+		// c'è il backBtn a sinistra e space-between; qui invece la toolbar è l'unico figlio).
+		const topbar = el.createDiv({ cls: 'hwm_editor-topbar hwm_editor-topbar--modal' });
 		if (isDark) topbar.classList.add('hwm_editor-topbar--dark');
 
 		const toolbar = topbar.createDiv({ cls: 'hwm_toolbar hwm_editor-toolbar' });
@@ -545,7 +555,10 @@ export class DrawingModal extends Modal {
 		handle.createEl('span', { text: '⋯' });
 		if (isDark) { handle.style.background = '#2a2a2a'; handle.style.borderTopColor = '#444'; handle.style.color = '#888'; }
 
-		this.canvas.onResize(() => { scrollWrap.scrollTop = scrollWrap.scrollHeight; });
+		// Auto-scroll solo se non si sta disegnando (stesso motivo del DrawingEditorView)
+		this.canvas.onResize(() => {
+			if (!this.canvas?.isPointerDown()) scrollWrap.scrollTop = scrollWrap.scrollHeight;
+		});
 
 		const cv = this.canvas;
 		penBtn.addEventListener('click', () => { cv.setMode('pen'); penBtn.classList.add('hwm_active'); eraserBtn.classList.remove('hwm_active'); });
@@ -633,25 +646,34 @@ export class DrawingModal extends Modal {
 		await this.app.vault.rename(svgFile, `${dest}/${ts}.svg`);
 	}
 
+	// Regex per trovare ![[svgPath]] nel file .md (formato wiki)
+	private wikiEmbedRegex(): RegExp {
+		const esc = this.svgPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		return new RegExp(`\\n?!\\[\\[${esc}\\]\\]\\n?`);
+	}
+
+	// Regex per il code block legacy con l'id specifico
 	private codeBlockRegex(): RegExp {
 		const esc = this.embedId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 		return new RegExp('\\n?```handwriting\\n.*?"id"\\s*:\\s*"' + esc + '".*?\\n```\\n?', 's');
 	}
 
-	private async replaceCodeBlock(markdown: string) {
+	// Applica sostituzione sul .md: prova prima formato wiki, poi legacy come fallback
+	private async replaceInMd(replacement: string) {
 		const mdFile = this.app.vault.getAbstractFileByPath(this.sourcePath);
 		if (!(mdFile instanceof TFile)) { new Notice('File markdown non trovato'); return; }
 		const content = await this.app.vault.read(mdFile);
-		const updated = content.replace(this.codeBlockRegex(), '\n' + markdown + '\n');
+		let updated = content.replace(this.wikiEmbedRegex(), replacement);
+		if (updated === content) updated = content.replace(this.codeBlockRegex(), replacement);
 		if (updated !== content) await this.app.vault.modify(mdFile, updated);
 	}
 
+	private async replaceCodeBlock(markdown: string) {
+		await this.replaceInMd('\n' + markdown + '\n');
+	}
+
 	private async removeCodeBlock() {
-		const mdFile = this.app.vault.getAbstractFileByPath(this.sourcePath);
-		if (!(mdFile instanceof TFile)) { new Notice('File markdown non trovato'); return; }
-		const content = await this.app.vault.read(mdFile);
-		const updated = content.replace(this.codeBlockRegex(), '\n');
-		if (updated !== content) await this.app.vault.modify(mdFile, updated);
+		await this.replaceInMd('\n');
 	}
 
 	private mkBtn(parent: HTMLElement, icon: string, title: string): HTMLElement {

@@ -136,6 +136,8 @@ export class DrawingCanvas {
 
 	setMode(mode: DrawMode) { this.mode = mode; }
 	getMode(): DrawMode { return this.mode; }
+	// Restituisce true se un tratto è in corso (pointer down)
+	isPointerDown(): boolean { return this.isDrawing; }
 
 	setColor(color: string) { this.color = color; }
 	setLineWidth(w: number) { this.lineWidth = w; }

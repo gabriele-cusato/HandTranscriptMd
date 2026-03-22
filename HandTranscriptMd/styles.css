@@ -17,14 +17,55 @@
 	pointer-events: auto;
 }
 
-/* TEST B: limita l'altezza dell'immagine SVG handwriting nel documento.
-   Ipotesi: l'SVG dopo auto-expand supera i 300px → copre più area →
-   aumenta l'interferenza con la proximity detection handwriting Android
-   (40dp dal bordo). Limitando a 300px riduciamo l'area CE=false.
-   object-fit: contain mantiene le proporzioni senza tagliare il disegno. */
+/* --- Modalità handwriting Android (switch nelle impostazioni) ---
+   Quando attiva (classe hwm-handwriting-mode su document.body), i riquadri
+   handwriting mostrano un box compatto con icona invece dell'SVG a piena
+   altezza. Questo riduce l'area CE=false che interferisce con la proximity
+   detection dello stylus handwriting di Android.
+   L'SVG viene nascosto; il pannello portale (position:fixed) rimane visibile
+   sopra il box per permettere apertura editor, conversione ed eliminazione. */
+.hwm-handwriting-mode .hwm-badge-mode {
+	/* Larghezza piena: lo span .internal-embed di default può restare stretto
+	   quanto l'immagine — forziamo 100% per contenere correttamente il pannello portale */
+	width: 100% !important;
+	box-sizing: border-box !important;
+	/* Altezza fissa: abbastanza alta da contenere il pannello portale (~34px)
+	   senza occupare troppo spazio nel documento */
+	height: 72px !important;
+	max-height: 72px !important;
+	min-height: 72px !important;
+	overflow: hidden;
+	cursor: default;
+	/* Flex per centrare l'icona */
+	display: flex !important;
+	align-items: center;
+	justify-content: center;
+	background: var(--background-secondary, #f0f0f0);
+	border-radius: 6px;
+}
+/* Nasconde l'SVG: mostriamo solo il box con l'icona */
+.hwm-handwriting-mode .hwm-badge-mode img {
+	display: none !important;
+}
+/* Icona matita centrata via pseudo-elemento */
+.hwm-handwriting-mode .hwm-badge-mode::after {
+	content: "✏️";
+	font-size: 28px;
+	opacity: 0.5;
+	pointer-events: none;
+}
+
+/* SVG a piena larghezza in tutti i contesti (switch OFF).
+   Quando lo switch è ON, le regole .hwm-handwriting-mode sovrastano questo. */
+.internal-embed[src*="_handwriting/"] {
+	display: block;
+	width: 100%;
+}
 .internal-embed[src*="_handwriting/"] img {
-	max-height: 300px;
-	object-fit: contain;
+	display: block;
+	width: 100%;
+	height: auto;
+	max-height: none;
 }
 
 /* Variante wiki ![[svg]]:
@@ -147,10 +188,17 @@
 .hwm_canvas-wrap {
 	width: 100%;
 	overflow: hidden;
+	/* Centra il canvas orizzontalmente quando il modal/tab è più largo
+	   della risoluzione nativa del canvas (canvasWidth dalle settings) */
+	display: flex;
+	justify-content: center;
 }
 .hwm_canvas {
 	display: block;
-	width: 100%;
+	/* max-width invece di width:100% per evitare che il canvas venga stirato
+	   oltre la sua risoluzione nativa (canvasWidth dai settings).
+	   Stirarlo causerebbe tratti pixelati nel modal / tab full-screen. */
+	max-width: 100%;
 	cursor: crosshair;
 	/* Sfondo bianco fisso */
 	background: #ffffff;
@@ -464,6 +512,11 @@
 	box-shadow: none !important;
 	background: transparent !important;
 	padding: 0 !important;
+}
+
+/* Topbar del DrawingModal: centra la toolbar (non c'è backBtn come nell'EditorView) */
+.hwm_editor-topbar--modal {
+	justify-content: center;
 }
 
 /* --- Scroll container per il canvas nell'editor --- */
