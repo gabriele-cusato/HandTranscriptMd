@@ -24,14 +24,14 @@ export default class HandwritingPlugin extends Plugin {
 		this.addCommand({
 			id: 'insert-handwriting',
 			name: 'Insert handwriting block',
-			editorCallback: () => {
-				insertHandwritingBlock(this);
+			callback: async () => {
+				await insertHandwritingBlock(this);
 			}
 		});
 
 		// Icona nella ribbon (sidebar sinistra)
-		this.addRibbonIcon('pencil', 'Insert handwriting', () => {
-			insertHandwritingBlock(this);
+		this.addRibbonIcon('pencil', 'Insert handwriting', async () => {
+			await insertHandwritingBlock(this);
 		});
 
 		// Tab impostazioni
