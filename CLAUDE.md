@@ -147,12 +147,14 @@ Il file SVG è visibile come immagine anche senza il plugin. I tratti sono salva
 
 ### Deploy (comandi copia-incolla per PowerShell)
 
+> **Nota**: usare la forma `bash -c "..."` perché in PowerShell `bash deploy.sh` lancia bash in una directory diversa (home di WSL/Git Bash), non nella directory corrente. Racchiudendo tutto dentro bash il `cd` funziona correttamente per tutti i comandi.
+
 ```powershell
 # Build + deploy al vault locale (solo PC)
-cd C:\Projects\pluginObsidian\handWrittenMarkdownConverter\HandTranscriptMd; node esbuild.config.mjs production; bash deploy.sh
+bash -c "cd '/c/Projects/pluginObsidian/handWrittenMarkdownConverter/HandTranscriptMd' && node esbuild.config.mjs production && bash deploy.sh"
 
 # Build + deploy su Google Drive (per testare su tablet Android)
-cd C:\Projects\pluginObsidian\handWrittenMarkdownConverter\HandTranscriptMd; node esbuild.config.mjs production; bash cloudDeploy.sh
+bash -c "cd '/c/Projects/pluginObsidian/handWrittenMarkdownConverter/HandTranscriptMd' && node esbuild.config.mjs production && bash cloudDeploy.sh"
 ```
 
 ### Percorsi vault
