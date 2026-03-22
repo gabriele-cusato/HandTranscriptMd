@@ -6,7 +6,8 @@
       "WebFetch(domain:groups.google.com)",
       "WebFetch(domain:css-tricks.com)",
       "WebFetch(domain:chromium.googlesource.com)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:issues.chromium.org)"
     ]
   }
 }
