@@ -40,18 +40,18 @@ Un plugin Obsidian che inserisce un **riquadro canvas inline** in un file `.md` 
 
 ---
 
-## Stato attuale — Fase 3 COMPLETATA (editor in tab separata)
+## Stato attuale — Fase 5 (fix overlay + centramento modal + badge mode + auto-scroll) — TESTATO
 
 ### File del plugin (`HandTranscriptMd/src/`)
 
 | File | Cosa fa |
 |------|---------|
 | `main.ts` | Entry point: registra embed, editor view, comando, ribbon, settings, `previewCallbacks` per sync inline↔tab |
-| `settings.ts` | Impostazioni: cartella SVG, dimensioni canvas, sfondo, lingue OCR, chiave API Gemini (campo password) |
+| `settings.ts` | Impostazioni: cartella SVG, dimensioni canvas, sfondo, lingue OCR, chiave API Gemini, toggle `hwmHandwritingMode` |
 | `drawing-canvas.ts` | Motore disegno Canvas API: Bézier quadratiche, penna, gomma parziale, undo/redo history-based, auto-expand, righe foglio, `allowFingerScroll()` |
 | `svg-utils.ts` | Conversione tratti ↔ SVG (dati riedit in `<desc>` JSON), righe e sfondo inclusi nell'SVG |
-| `embed.ts` | Code block processor → preview SVG inline con 3 bottoni (X, converti, comprimi) in alto a sinistra + bottone portale in document.body; preview non cliccabile |
-| `editor-view.ts` | `DrawingEditorView extends ItemView` — editor canvas in tab Obsidian dedicata, toolbar completa, scroll, auto-save |
+| `embed.ts` | Code block processor → preview SVG inline + pannello portale in document.body; click matita → Modal (Windows) o nuova tab (Android); scroll fix; badge mode |
+| `editor-view.ts` | `DrawingEditorView` (tab dedicata, Android) + `DrawingModal` (overlay fullscreen, Windows), toolbar completa, auto-save |
 | `recognizer.ts` | `IRecognizer` interface + `GeminiRecognizer`: invia PNG base64 a Gemini API, restituisce testo |
 | `md-parser.ts` | `parseMarkdown()`: post-processa testo OCR riga per riga applicando sintassi markdown |
 
@@ -65,8 +65,9 @@ Un plugin Obsidian che inserisce un **riquadro canvas inline** in un file `.md` 
 - Obsidian renderizza `![[svg]]` come `<span class="internal-embed image-embed">[img][/img]</span>`
 - **MutationObserver su `document.body`** intercetta gli span con `src*="_handwriting/"` non appena appaiono nel DOM (funziona sia in reading view che in live preview dove il post-processor non viene chiamato)
 - `tryDecorate()` con flag `data-hwm-decorated="1"` per evitare doppia elaborazione; ritenta dopo 150ms se la classe `image-embed` non è ancora presente (caricamento asincrono)
-- **ZERO modifica al DOM dello span** — nessuna classe aggiunta, nessun figlio inserito, nessuno stile inline. Lo span resta identico a qualsiasi altra immagine Obsidian
-- **Pannello portale** (`hwm_portal-panel`) in `document.body` con 4 bottoni: ✏️ (apre tab editor), 📄 (converti OCR), ↕️ (comprimi/espandi), ✕ (elimina). Posizionato via RAF + `getBoundingClientRect()` + `position: fixed`
+- **Classe badge mode**: `span.classList.toggle('hwm-badge-mode', hwmHandwritingMode)` — unica modifica allo span quando lo switch è attivo
+- **Pannello portale** (`hwm_portal-panel`) in `document.body` con 4 bottoni: ✏️ (apre Modal su Windows / tab su Android), 📄 (converti OCR), ↕️ (comprimi/espandi), ✕ (elimina). Posizionato via RAF + `getBoundingClientRect()` + `position: fixed`
+- **Scroll fix**: listener `scroll` su `.cm-scroller` / `.markdown-reading-view` che nasconde il pannello immediatamente durante lo scroll (visibilità ripristinata dopo 150ms)
 - **Refresh immagine**: `previewCallbacks.set(embedId, ...)` aggiorna `img.src` con cache-bust `?t=timestamp` dopo ogni salvataggio dalla tab editor (Obsidian non aggiorna automaticamente `![[svg]]` in live preview quando il file cambia)
 - **NO data-URI**: il src dell'img resta sempre l'URL vault (`http://localhost/_capacitor_file_/...`) — un data-URI verrebbe interpretato da Android come drawing surface
 
@@ -75,16 +76,31 @@ Un plugin Obsidian che inserisce un **riquadro canvas inline** in un file `.md` 
 - 3 bottoni inline (`<div role="button">`, non `<button>`) dentro il container del code block
 - Bottone portale singolo (`hwm_portal-btn`, cerchio matita) in `document.body` per aprire la tab editor
 
-**Editor in tab separata (`editor-view.ts`):**
-- `DrawingEditorView extends ItemView` di Obsidian
+**Editor disegno — due modalità (`editor-view.ts`):**
+
+`DrawingEditorView extends ItemView` — usato su **Android**:
 - Canvas in un DOM completamente separato da CodeMirror → **nessun conflitto handwriting Android**
 - Top bar: bottone ← a sinistra (chiude tab), toolbar completa a destra
 - Scroll container: `overflow-y: auto` per canvas più grandi dello schermo
-- Auto-scroll: callback `onResize` su DrawingCanvas → scrolla verso il basso durante auto-expand
-- Finger scroll: `allowFingerScroll(scrollContainer)` — `touch-action` resta `none` (penna non scrolla), dito scrolla il container via `setPointerCapture` + JS manuale
-- Resize handle visibile ma `pointer-events: none` (no drag manuale, solo auto-expand)
-- Auto-save debounced 2s + callback `plugin.refreshPreview()` aggiorna la preview inline
-- Converti/Elimina funzionano anche dalla tab (manipolano il .md via `sourcePath`)
+- Finger scroll: `allowFingerScroll(scrollContainer)` — dito scrolla, penna disegna
+- Auto-save debounced 2s + `plugin.refreshPreview()` aggiorna la preview inline
+
+`DrawingModal extends Modal` — usato su **Windows**:
+- Overlay fullscreen (`hwm_modal`: `95vw × 90vh`) che appare sopra il documento
+- Stessa toolbar e stesso canvas di `DrawingEditorView`
+- `onClosed?: () => void` — callback invocato alla chiusura per aggiornare il flag `modalOpen` nel RAF loop del pannello portale
+- `replaceCodeBlock` / `removeCodeBlock` gestiscono sia formato wiki `![[svg]]` che legacy (prova prima wiki, poi code block come fallback)
+
+**Comportamento bottone matita (pannello portale):**
+- `Platform.isDesktop` → `new DrawingModal(...).open()` — si apre nella stessa finestra
+- `Platform.isMobile` → `workspace.getLeaf('tab')` con `DrawingEditorView`
+- Bottone matita nascosto: `modalOpen || tabOpen` — scompare sia quando Modal è aperto (Windows) sia quando la tab è aperta (Android)
+
+**Modalità handwriting (`hwmHandwritingMode`):**
+- Switch nelle impostazioni: "Modalità handwriting Android"
+- Se ON: `document.body.classList.add('hwm-handwriting-mode')` + classe `hwm-badge-mode` sullo span → CSS riduce l'SVG a 48px di altezza (badge/thumbnail)
+- Se OFF (default): SVG piena, comportamento normale
+- Si applica immediatamente senza ricaricare il plugin (toggle in settings chiama `document.body.classList.toggle(...)`; all'avvio viene applicato in `registerEmbed()`)
 
 ### Funzionalità implementate
 
@@ -108,8 +124,11 @@ Un plugin Obsidian che inserisce un **riquadro canvas inline** in un file `.md` 
 - **Settings OCR** — chiave API Gemini (campo password) + lingue OCR configurabili (default: `it, en`)
 - **Supporto Android** — penna disegna, dito scrolla, nessun conflitto handwriting
 - **Comprimi/Espandi** — preview inline si può compattare all'altezza di default (freccia con rotazione 180°)
-- **Bottone portale** — pulsante cerchio con icona matita in `document.body` (fuori da cm-content), si posiziona sopra il riquadro via RAF + getBoundingClientRect, si nasconde automaticamente se la tab editor è già aperta o il riquadro esce dal viewport
-- **Preview non tappabile** — click handler rimosso; l'unico modo per aprire l'editor è il bottone portale
+- **Bottone portale** — pannello floating in `document.body`, si posiziona sopra il riquadro via RAF + getBoundingClientRect, scompare durante lo scroll (listener scroll + visibility hidden/visible)
+- **Preview non tappabile** — click handler rimosso; l'unico modo per aprire l'editor è il bottone matita nel pannello portale
+- **Modal Windows** — click matita su Desktop apre `DrawingModal` (overlay fullscreen nella stessa finestra, no tab separata)
+- **Nuova tab Android** — click matita su Mobile apre `DrawingEditorView` in tab separata
+- **Switch handwriting** — toggle nelle Settings: se ON, i riquadri mostrano solo una piccola anteprima (48px) per non bloccare lo stylus handwriting nel testo
 
 ### Embedding nel markdown
 
@@ -187,33 +206,49 @@ cd C:\Projects\pluginObsidian\handWrittenMarkdownConverter\HandTranscriptMd; nod
 
 ## Prossimi passi
 
-### BUG handwriting — Test da fare in ordine
+### ✅ TEST EFFETTUATI (sessione 2026-03-22)
 
-**Test A — `pointer-events: none` sullo span** (1 riga, da provare per primo):
-- In `tryDecorate()`, aggiungere `span.style.pointerEvents = 'none'` dopo `span.dataset.hwmDecorated = '1'`
-- I bottoni portale (in `document.body`) continuano a funzionare
-- Verifica: con SVG riempito nel documento, l'handwriting funziona?
-- Se sì → risolto. Se no → Chrome usa DOM walk separato, pointer-events non basta
+#### Bug 1 — Pannello portale parzialmente visibile con Modal aperto — RISOLTO ✅
 
-**Test B — Limitare max-height dell'immagine** (se A non funziona):
-- Ipotesi: SVG vuoto (300px) non rompe, SVG riempito (500px+) rompe → è la HEIGHT del CE=false che causa il problema
-- Test empirico: aggiungere in CSS `.internal-embed[src*="_handwriting/"] img { max-height: 300px; object-fit: contain; }` e verificare se con un SVG alto (dopo auto-expand) l'handwriting funziona
-- Se sì → limitare max-height è la soluzione
-- Se no → l'altezza non è la causa, passare a C
+**Sintomo**: su Windows, cliccando il bottone matita, i bottoni "Converti" e "Comprimi" del pannello portale restavano visibili sopra il modal mentre il bottone matita scompariva correttamente.
+**Causa**: il RAF loop nascondeva solo il bottone matita (`btn.style.display`) ma non l'intero pannello.
+**Fix**: il RAF loop ora setta `panel.style.display = 'none'` quando `modalOpen || tabOpen`, nascondendo l'intero pannello portale (tutti e 4 i bottoni).
+**File**: `src/embed.ts` — RAF loop in `decorateSpan()`.
 
-**Test C — Placeholder in Live Preview** (se B non funziona):
-- In live preview (span dentro `.cm-editor`), mostrare solo un piccolo badge "📝 disegno" di 40px di altezza invece dell'SVG pieno
-- L'SVG pieno appare solo in Reading View (span dentro `.markdown-reading-view`)
-- Come distinguerle: `span.closest('.cm-editor')` vs `span.closest('.markdown-reading-view')`
-- Questo riduce il CE=false a un'area minima → handwriting dovrebbe funzionare nelle righe di testo circostanti
+---
 
-**Idea — Modalità handwriting / preview (switch globale nelle impostazioni)**:
-- L'utente sceglie tra due modalità tramite un toggle nelle impostazioni (o un comando da palette):
-  - **Modalità handwriting**: i riquadri mostrano solo un piccolo badge/placeholder nel documento (niente SVG piena). Tappando il badge si apre la tab editor. L'handwriting Android funziona nel testo circostante.
-  - **Modalità preview**: i riquadri mostrano l'SVG completa inline, come ora. Niente handwriting Android, ma si vede il disegno direttamente nel documento.
-- La modalità si potrebbe cambiare anche al volo senza ricaricare Obsidian (il MutationObserver ridecorarebbe gli span al cambio impostazione)
-- Su PC (nessun conflitto handwriting) la modalità preview sarebbe sempre quella giusta; su Android si sceglierebbe in base al workflow del momento
-- Implementazione: aggiungere `hwmMode: 'handwriting' | 'preview'` a `HandwritingSettings`; in `tryDecorate()` controllare la modalità e decidere se mostrare badge o SVG piena
+#### Bug 2 — Canvas modal troppo largo, toolbar non centrata — RISOLTO ✅
+
+**Sintomo**: nel Modal Windows, il canvas occupava tutta la larghezza dell'overlay (troppo largo e non centrato). La toolbar era allineata a sinistra invece che al centro.
+**Fix CSS** (`styles.css`):
+- `.hwm_canvas-wrap { display: flex; justify-content: center; }` — centra il canvas orizzontalmente
+- `.hwm_canvas { max-width: 100%; }` — rimosso `width: 100%` fisso
+- `.hwm_editor-topbar--modal { justify-content: center; }` — centra la toolbar nel modal
+**Fix TS** (`editor-view.ts`): `DrawingModal.buildEditor()` aggiunge classe `hwm_editor-topbar--modal` alla topbar.
+
+---
+
+#### Bug 3 — Auto-scroll sposta i tratti durante il disegno — RISOLTO ✅
+
+**Sintomo**: quando il canvas si espandeva automaticamente (auto-expand) mentre stavo disegnando, lo scroll automatico verso il basso spostava i punti del tratto corrente rispetto alla posizione del pennino.
+**Causa**: l'evento `onResize` faceva scroll immediatamente anche con il pointer premuto, spostando il canvas mentre le coordinate del puntatore erano ancora relative alla posizione pre-scroll.
+**Fix**: aggiunto metodo pubblico `isPointerDown(): boolean` in `DrawingCanvas` (`drawing-canvas.ts`). Sia `DrawingEditorView` che `DrawingModal` in `editor-view.ts` ora controllano `!canvas.isPointerDown()` prima di eseguire il `scrollTop` automatico.
+
+---
+
+#### Bug 4 — Badge mode mostra icona in riquadro piccolissimo — RISOLTO ✅
+
+**Sintomo**: attivando "Modalità handwriting Android" nelle impostazioni, i riquadri SVG si riducevano a un quadratino minuscolo invece di un badge orizzontale a piena larghezza.
+**Causa**: lo span `.internal-embed` senza figli visibili collassava alla sua larghezza intrinseca (quasi zero).
+**Fix CSS** (`.hwm-handwriting-mode .hwm-badge-mode`):
+```css
+width: 100% !important; box-sizing: border-box !important;
+height: 72px !important; display: flex !important;
+align-items: center; justify-content: center;
+background: var(--background-secondary); border-radius: 6px;
+```
+Più: `img { display: none !important }` per nascondere l'SVG e `::after { content: "✏️"; font-size: 28px; opacity: 0.5; }` per l'icona.
+**File**: `styles.css`.
 
 ### Altri task aperti
 
@@ -245,8 +280,16 @@ cd C:\Projects\pluginObsidian\handWrittenMarkdownConverter\HandTranscriptMd; nod
 - **Placeholder text** ✅ — aggiornato a "Usa il bottone matita in alto a destra per disegnare"
 - **Bottone portale non cerchio perfetto** ✅ — risolto con `width/height/min-width/min-height: 36px !important`, `padding: 0 !important`, `overflow: hidden`
 - **Icona bottone portale non visibile** ✅ — SVG con `stroke="currentColor"` non diventava bianco; risolto con `.hwm_portal-btn svg { stroke: #ffffff !important }`
-- **Bottone portale non si nasconde con editor aperto** ✅ — aggiunto check `workspace.getLeavesOfType(VIEW_TYPE_HANDWRITING).some(...)` nel RAF loop
+- **Bottone portale non si nasconde con editor aperto** ✅ — check `workspace.getLeavesOfType(VIEW_TYPE_HANDWRITING).some(...)` nel RAF loop (Android) + flag `modalOpen` (Windows)
 - **Bottone portale `position: absolute` invece di `fixed`** ✅ — `getBoundingClientRect()` restituisce coordinate viewport, non serviva aggiungere `scrollY/scrollX`
+- **Bottoni pannello portale rimangono visibili durante lo scroll** ✅ — listener `scroll` su `.cm-scroller`/`.markdown-reading-view` che setta `visibility: hidden` durante lo scroll
+- **Modal Windows** ✅ — implementato `DrawingModal extends Modal`; click matita su Desktop apre modal invece di nuova tab
+- **Switch handwriting** ✅ — `hwmHandwritingMode` in settings; badge mode via classe CSS su `document.body` e sullo span
+- **DrawingModal non gestiva formato wiki** ✅ — aggiunto `wikiEmbedRegex()` e logica try-wiki-then-legacy in `replaceInMd()`
+- **Pannello portale visibile con Modal aperto (Bug 1)** ✅ — RAF loop ora nasconde l'intero panel (`display: none`) quando `modalOpen || tabOpen`, non solo il bottone matita
+- **Canvas modal non centrato, toolbar a sinistra (Bug 2)** ✅ — `display: flex; justify-content: center` su `.hwm_canvas-wrap`; `max-width: 100%` su `.hwm_canvas`; classe `hwm_editor-topbar--modal` aggiunta al topbar del modal per centrare la toolbar
+- **Auto-scroll sposta tratti durante disegno (Bug 3)** ✅ — aggiunto `isPointerDown()` in `DrawingCanvas`; scroll automatico bloccato se il pointer è premuto, sia in `DrawingEditorView` che in `DrawingModal`
+- **Badge mode mostra riquadro minuscolo (Bug 4)** ✅ — CSS `.hwm-handwriting-mode .hwm-badge-mode` con `width: 100% !important`, `height: 72px`, flex centrato, `img { display: none }` + `::after` con emoji matita
 
 ### BUG APERTO — Handwriting disabilitato nel documento quando il riquadro è presente
 
@@ -262,7 +305,7 @@ cd C:\Projects\pluginObsidian\handWrittenMarkdownConverter\HandTranscriptMd; nod
 - Canvas in `document.body` (fuori da CM6) toccato con stylus → **rompe handwriting** — conclusione: è il canvas element quando toccato dalla stylus, non la sua posizione nel DOM
 - **Causa root fase 1**: Android WebView tratta qualsiasi `<canvas>` toccato dalla stylus come "drawing surface" e disabilita handwriting-to-text a livello di sessione WebView
 
-**Fase 2 — Passaggio a formato wiki `![[svg]]`** (sessione corrente):
+**Fase 2 — Passaggio a formato wiki `![[svg]]`** (sessione 2026-03-19):
 
 L'obiettivo era eliminare il `<canvas>` dal documento e mostrare solo l'`<img>` nativa di Obsidian.
 
@@ -276,15 +319,36 @@ Cambiamenti implementati durante la fase 2:
 - Rimosso `addWikiOverlay` (aggiungeva `hwm_inline-buttons` come figlio dello span): la struttura dello span è ora identica a un'immagine normale
 - Pannello portale (`hwm_portal-panel`) in `document.body` con tutti e 4 i bottoni
 
-**Stato attuale**: dopo aver rimosso TUTTA la nostra decorazione dallo span (nessun figlio aggiunto, nessuna classe, nessuno stile), il problema persiste. Lo span è identico a quello di un'immagine normale Obsidian, ma l'handwriting si rompe ugualmente con l'SVG riempito.
+**Fase 3 — Test approfonditi (sessione 2026-03-22)**:
 
-**Ipotesi residue** (non ancora testate):
+**Test A — Rimozione `touch-action: none` da `.hwm_resize-handle`** (tentativo 29):
+- Motivazione: `touch-action: none` è uno dei segnali che Android WebView usa per identificare "drawing surfaces". Rimuovendolo dal resize handle, si riduce il numero di elementi che si qualificano come drawing surface.
+- Risultato: **non risolve**. L'handwriting si rompe ugualmente dopo aver aperto la tab editor.
 
-| # | Ipotesi | Razionale |
-|---|---------|-----------|
-| A | `pointer-events: none` sullo span | Se Chrome usa lo stesso hit-test dei pointer events per la proximity detection, potrebbe ignorare lo span e trovare il `cm-content[ce=true]` sottostante. Incerto: Chrome potrebbe fare un DOM walk separato per `contenteditable` indipendente da pointer-events |
-| B | Altezza SVG: l'empty SVG è 300px, il filled SVG è più alto (auto-expand). Un CE=false più alto copre più area → più probabile interferire con la proximity detection (40dp dal bordo). Fix: limitare max-height dell'immagine nel documento | La proximity detection è 40dp verticale — un'immagine da 500px di altezza occupa molto più "territorio" di una da 300px |
-| C | Placeholder in Live Preview | Mostrare solo un piccolo badge in live preview (dove si scrive), SVG pieno solo in Reading View. Lo span CE=false sarebbe piccolo → non interferisce |
+**Test B — IME reset alla chiusura della tab editor** (tentativo 30):
+- Motivazione: ipotesi che la sessione IME (Input Method Engine) di Android venisse "bloccata" dall'apertura della DrawingEditorView. Un blur/focus sul `cm-content` dopo la chiusura avrebbe potuto resettarla.
+- Implementazione: `DrawingEditorView.onClose()` fa `cm.blur(); setTimeout(() => cm.focus(), 80)` solo su mobile.
+- Risultato: **non risolve**. L'handwriting rimane rotto dopo la chiusura.
+
+**Test C — Sostituzione `<canvas>` con `<svg>` nel motore di disegno** (tentativo 31):
+- Motivazione (Opzione C dalle ipotesi): il `<canvas>` è l'elemento che Android WebView riconosce come drawing surface. Sostituendolo con un `<svg>` (che disegna tramite elementi `<path>`), il motore di disegno non avrebbe più alcun canvas DOM.
+- Implementazione: riscrittura completa di `drawing-canvas.ts` con `SVGElement`, `<rect>` per sfondo, `<g>` per righe e tratti, `<path>` per ogni tratto con Bézier midpoint. Rimosso `touch-action: none`.
+- Risultato: **non risolve**. L'handwriting si rompe ugualmente dopo aver aperto la tab editor SVG. Implementazione reverted dall'utente.
+
+**Test D — Apertura tab senza disegnare nulla** (tentativo 32):
+- Motivazione: verificare se il trigger fosse il canvas toccato dalla stylus oppure la semplice apertura della tab.
+- Test: aprire la DrawingEditorView, non toccarla, chiuderla → tentare handwriting nel documento.
+- Risultato: **handwriting rotto anche senza aver toccato nulla nel canvas**. Il trigger è l'apertura della tab, non il disegno. Questo esclude che `touch-action`, `setPointerCapture` o qualsiasi evento di disegno siano la causa.
+
+**Test E — Apertura in nuova finestra Obsidian** (tentativo 33):
+- Motivazione: Obsidian Mobile già apre la tab editor in una nuova finestra separata (`workspace.getLeaf('tab')`). Ipotesi che la separazione di finestra potesse isolare lo stato IME.
+- Risultato: **non risolve**. Confermato dall'utente che l'editor già apre in una finestra separata, ma il problema persiste. Tutto il runtime condivide lo stesso processo WebView → lo stato `StylusWritingManager` è condiviso a livello di processo, non di finestra.
+
+**Stato finale (2026-03-22)**: limite architetturale di Obsidian Mobile confermato. Il `StylusWritingManager` di Android WebView (componente compositor-level di Chromium) viene disabilitato al livello del processo WebView quando rileva l'apertura di una "drawing surface" (qualsiasi tab con canvas/SVG interattivo). Non è risolvibile via JS/CSS dall'interno dell'app.
+
+**Workaround attuale**: lo switch "Modalità handwriting Android" nelle impostazioni. Quando attivo, i riquadri mostrano solo il badge 72px (non interferisce con il proximity detection) e l'utente deve aprire l'editor consapevolmente quando vuole disegnare, sapendo che l'handwriting-to-text nel documento verrà interrotto per quella sessione.
+
+**Conferma esterna**: il plugin **Excalidraw** e il plugin **Handwritten Notes** hanno lo stesso identico problema — appena si apre la tab di disegno, l'handwriting-to-text si disattiva nell'intero Obsidian e non si ripristina nemmeno riavviando l'app. È un limite di Android WebView, non specifico al nostro plugin. **Non esiste soluzione lato plugin**; il compromesso dello switch è la scelta definitiva.
 
 **Fonti**:
 - [Chromium Stylus Handwriting README](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/components/stylus_handwriting/README.md)
@@ -293,10 +357,12 @@ Cambiamenti implementati durante la fase 2:
 
 **Scoperte chiave consolidate**:
 - `inputmode="none"` contamina l'intero WebView — MAI usare
-- Empty SVG (300px) NON rompe handwriting; SVG con disegno (altezza > 300px per auto-expand) SÌ
+- Empty SVG (300px) NON rompe handwriting; SVG con disegno (altezza > 300px per auto-expand) SÌ (sessione 2026-03-19)
 - data-URI come `img.src` rompe handwriting → usare sempre URL vault + cache-bust
 - Il problema è persistente tra sessioni (riavvio Obsidian) — non è corruzione di sessione temporanea
 - Rimuovere completamente la nostra decorazione (nessun figlio nello span) non risolve — la causa è nell'SVG stesso o nella sua altezza
+- **Il trigger è l'apertura della DrawingEditorView, non il disegno** — aprire senza toccare nulla già rompe l'handwriting (scoperta sessione 2026-03-22)
+- **Anche una finestra Obsidian separata non isola il problema** — il WebView process è condiviso (scoperta sessione 2026-03-22)
 
 **Tentativi falliti (completo)**:
 
@@ -312,6 +378,11 @@ Cambiamenti implementati durante la fase 2:
 | 26 | Test console: canvas fake in `document.body` toccato con stylus | Conferma: canvas + stylus = handwriting rotto |
 | 27 | Passaggio a `![[svg]]` con MutationObserver | Non risolve |
 | 28 | Rimozione totale decorazione dallo span (nessun figlio aggiunto) | Non risolve |
+| 29 | Rimosso `touch-action: none` da `.hwm_resize-handle` | Non risolve |
+| 30 | IME reset (blur/focus su `cm-content`) in `DrawingEditorView.onClose()` | Non risolve |
+| 31 | Sostituzione `<canvas>` con `<svg>` nel motore di disegno (Option C) | Non risolve — reverted |
+| 32 | Apertura tab senza disegnare nulla | Conferma: il trigger è l'apertura della tab, non il disegno |
+| 33 | Apertura in nuova finestra Obsidian (già fatto di default su Mobile) | Non risolve — WebView process condiviso |
 
 ---
 
