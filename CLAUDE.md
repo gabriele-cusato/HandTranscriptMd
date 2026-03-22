@@ -47,7 +47,7 @@ Un plugin Obsidian che inserisce un **riquadro canvas inline** in un file `.md` 
 | File | Cosa fa |
 |------|---------|
 | `main.ts` | Entry point: registra embed, editor view, comando, ribbon, settings, `previewCallbacks` per sync inline↔tab |
-| `settings.ts` | Impostazioni: cartella SVG, dimensioni canvas, sfondo, lingue OCR, chiave API Gemini, toggle `hwmHandwritingMode` |
+| `settings.ts` | Impostazioni: cartella SVG, dimensioni canvas, sfondo, lingue OCR, chiave API Gemini, toggle `hwmHandwritingMode`; mostra versione (`plugin.manifest.version`) e branch (`PLUGIN_BRANCH` costante hardcoded) nell'header della pagina impostazioni |
 | `drawing-canvas.ts` | Motore disegno Canvas API: Bézier quadratiche, penna, gomma parziale, undo/redo history-based, auto-expand, righe foglio, `allowFingerScroll()` |
 | `svg-utils.ts` | Conversione tratti ↔ SVG (dati riedit in `<desc>` JSON), righe e sfondo inclusi nell'SVG |
 | `embed.ts` | Code block processor → preview SVG inline + pannello portale in document.body; click matita → Modal (Windows) o nuova tab (Android); scroll fix; badge mode |
@@ -349,6 +349,16 @@ Cambiamenti implementati durante la fase 2:
 **Workaround attuale**: lo switch "Modalità handwriting Android" nelle impostazioni. Quando attivo, i riquadri mostrano solo il badge 72px (non interferisce con il proximity detection) e l'utente deve aprire l'editor consapevolmente quando vuole disegnare, sapendo che l'handwriting-to-text nel documento verrà interrotto per quella sessione.
 
 **Conferma esterna**: il plugin **Excalidraw** e il plugin **Handwritten Notes** hanno lo stesso identico problema — appena si apre la tab di disegno, l'handwriting-to-text si disattiva nell'intero Obsidian e non si ripristina nemmeno riavviando l'app. È un limite di Android WebView, non specifico al nostro plugin. **Non esiste soluzione lato plugin**; il compromesso dello switch è la scelta definitiva.
+
+**Ricerca approfondita sul sorgente Chromium (2026-03-22)**:
+
+- **Nessun bug Chromium aperto trovato** per questo problema specifico (il tracker non è scrapeable)
+- **Obsidian Ink Issue #156** — ancora aperta, nessuna soluzione
+- **Scoperta chiave**: il `<canvas>` da solo NON disabilita l'handwriting — non esiste codice canvas-specifico in Chromium che imposti `kInternalNotWritable`. Il trigger reale è **`touch-action: none`**: qualsiasi elemento con quella proprietà CSS fa scattare il flag `kInternalNotWritable` in `touch_action_util.cc`, disabilitando la scrittura con stilo su quell'elemento
+- **Commit rilevante** (~5 mesi fa): `b06690ad` — Samsung DirectWriting disabilitato su Android 14+. Se il dispositivo è Android 14+, il percorso Samsung proprietario (closed source, potenzialmente causa di session-corruption) è già escluso
+- **Ipotesi residua più probabile**: quando `DrawingEditorView` si apre, il `touch-action: none` del canvas o del suo scroll container viene propagato a livello di Android View dal WebView, e alla chiusura della tab quella configurazione non viene resettata
+
+**Possibile prossimo test**: rimuovere completamente `touch-action: none` dal canvas e dal suo scroll container in `drawing-canvas.ts` / `editor-view.ts` e verificare se il problema persiste. Se il canvas da solo non rompe nulla (come confermato dal sorgente Chromium), potrebbe bastare rimuovere quella proprietà.
 
 **Fonti**:
 - [Chromium Stylus Handwriting README](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/components/stylus_handwriting/README.md)
