@@ -96,6 +96,9 @@ export const DEFAULT_SETTINGS: HandwritingSettings = {
 	hwmHandwritingMode: false,    // default: mostra SVG piena
 };
 
+// Nome del branch corrente — aggiornare manualmente ad ogni cambio di branch
+const PLUGIN_BRANCH = 'overlay';
+
 export class HandwritingSettingTab extends PluginSettingTab {
 	plugin: HandwritingPlugin;
 
@@ -109,6 +112,12 @@ export class HandwritingSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		containerEl.createEl('h2', { text: 'Handwriting to Markdown' });
+
+		// Riga versione + branch
+		containerEl.createEl('p', {
+			text: `v${this.plugin.manifest.version} — branch: ${PLUGIN_BRANCH}`,
+			cls: 'setting-item-description',
+		});
 
 		// --- Cartella SVG ---
 		new Setting(containerEl)
