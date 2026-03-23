@@ -604,3 +604,40 @@
 .hwm_resize-handle--disabled:hover {
 	background: #f5f5f5; /* annulla l'effetto hover */
 }
+
+/* --- Sezione keyword OCR nelle impostazioni --- */
+.hwm_keyword-ref {
+	margin-top: 24px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	padding: 0 12px 12px;
+}
+.hwm_keyword-summary {
+	cursor: pointer;
+	padding: 10px 0;
+	font-weight: 600;
+	user-select: none;
+}
+.hwm_keyword-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 12px;
+	margin-top: 8px;
+}
+.hwm_keyword-table th,
+.hwm_keyword-table td {
+	padding: 4px 8px;
+	text-align: left;
+	border-bottom: 1px solid var(--background-modifier-border);
+	vertical-align: top;
+}
+.hwm_keyword-table th {
+	font-weight: 600;
+	color: var(--text-muted);
+}
+/* Nome keyword in grassetto, colore accent */
+.hwm_kw-name {
+	font-weight: 600;
+	color: var(--text-accent);
+	white-space: nowrap;
+}

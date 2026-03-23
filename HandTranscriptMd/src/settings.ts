@@ -207,5 +207,71 @@ export class HandwritingSettingTab extends PluginSettingTab {
 					this.plugin.settings.debugMode = value;
 					await this.plugin.saveSettings();
 				}));
+
+		// --- Riferimento keyword OCR (sezione espandibile) ---
+		// NOTA SVILUPPATORI: se aggiungi una keyword in md-parser.ts, aggiornala anche qui!
+		const details = containerEl.createEl('details', { cls: 'hwm_keyword-ref' });
+		details.createEl('summary', {
+			text: 'Keyword riconosciute dal parser OCR',
+			cls: 'hwm_keyword-summary',
+		});
+		details.createEl('p', {
+			text: 'Scrivi queste keyword nel disegno per generare la struttura markdown corrispondente. Tutte sono case-insensitive (<h1> = <H1>). Il contenuto segue direttamente dopo >.',
+			cls: 'setting-item-description',
+		});
+
+		// Tabella keyword: [nome, sintassi, output]
+		const KEYWORDS: [string, string, string][] = [
+			['<H1>',              '<H1> Titolo',              '# Titolo'],
+			['<H2>',              '<H2> Titolo',              '## Titolo'],
+			['<H3>',              '<H3> Titolo',              '### Titolo'],
+			['<H4>',              '<H4> Titolo',              '#### Titolo'],
+			['<B> / <BOLD>',      '<B> testo',                '**testo**'],
+			['<I>',               '<I> testo',                '*testo*'],
+			['<BI>',              '<BI> testo',               '***testo***'],
+			['<S> / <STRIKE>',    '<S> testo',                '~~testo~~'],
+			['<HL>',              '<HL> testo',               '==testo=='],
+			['<CODE>',            '<CODE> testo',             '`testo`'],
+			['<CODEBLOCK>',       '<CODEBLOCK js>',           '```js\n...\n```'],
+			['<LIST>',            '<LIST> a, b, c',           '- a\n- b\n- c'],
+			['<NUMLIST>',         '<NUMLIST> a, b, c',        '1. a\n2. b\n3. c'],
+			['<CHECK>',           '<CHECK> a, b, c',          '- [ ] a\n- [ ] b\n- [ ] c'],
+			['<TABLE>',           '<TABLE> Col1, Col2',       '| Col1 | Col2 |\n|---|---|\n| ... |'],
+			['<NOTE>',            '<NOTE> testo',             '> [!NOTE]\n> testo'],
+			['<WARN>',            '<WARN> testo',             '> [!WARNING]\n> testo'],
+			['<TIP>',             '<TIP> testo',              '> [!TIP]\n> testo'],
+			['<INFO>',            '<INFO> testo',             '> [!INFO]\n> testo'],
+			['<ERROR>',           '<ERROR> testo',            '> [!ERROR]\n> testo'],
+			['<IMPORTANT>',       '<IMPORTANT> testo',        '> [!IMPORTANT]\n> testo'],
+			['<QUOTE>',           '<QUOTE> testo',            '> testo'],
+			['<LINK>',            '<LINK> testo, url',        '[testo](url)'],
+			['<IMG>',             '<IMG> alt, url',           '![alt](url)'],
+			['<HR> / <SEP>',      '<HR>',                     '---'],
+			['<FN>',              '<FN> nota a piè pagina',   '[^1]: nota a piè pagina'],
+			['<MATH>',            '<MATH> formula',           '$formula$'],
+			['<MATHBLOCK>',       '<MATHBLOCK>',              '$$\n...\n$$'],
+			['<TAG>',             '<TAG> parola',             '#parola'],
+			['<DATE>',            '<DATE>',                   'YYYY-MM-DD'],
+			['<TIME>',            '<TIME>',                   'HH:mm'],
+			['<DATETIME>',        '<DATETIME>',               'YYYY-MM-DD HH:mm'],
+			['<INDENT>',          '<INDENT> testo',           '  testo'],
+		];
+
+		const table = details.createEl('table', { cls: 'hwm_keyword-table' });
+		const thead = table.createEl('thead');
+		const hrow  = thead.createEl('tr');
+		['Keyword', 'Sintassi', 'Output'].forEach(h => hrow.createEl('th', { text: h }));
+		const tbody = table.createEl('tbody');
+		for (const [name, syntax, output] of KEYWORDS) {
+			const row = tbody.createEl('tr');
+			row.createEl('td', { text: name, cls: 'hwm_kw-name' });
+			row.createEl('td').createEl('code', { text: syntax });
+			// Mostra il testo dell'output su più righe se contiene \n
+			const outTd = row.createEl('td');
+			output.split('\n').forEach((ln, idx) => {
+				if (idx > 0) outTd.createEl('br');
+				outTd.createEl('code', { text: ln });
+			});
+		}
 	}
 }

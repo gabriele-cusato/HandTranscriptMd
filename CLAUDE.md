@@ -215,12 +215,16 @@ cd C:\Projects\pluginObsidian\handWrittenMarkdownConverter\HandTranscriptMd; nod
 > **Storico sessioni, bug risolti e funzionalità completate** → vedi [`NOTES.md`](./NOTES.md)
 > I task completati vanno spostati in `NOTES.md`; in questa sezione restano solo i task ancora da fare.
 
+## Regole di sviluppo
+
+> **Keyword parser**: ogni volta che si aggiunge o rimuove una keyword accettata in `src/md-parser.ts`, va aggiornata **anche** la tabella `KEYWORDS` in `src/settings.ts` (sezione "Keyword riconosciute dal parser OCR"). Le due liste devono essere sempre sincronizzate.
+
 ## Prossimi passi
 
 ### Task aperti
 
-- **Migliorare il riconoscimento OCR da Gemini** — `src/recognizer.ts` + `src/md-parser.ts`:
-  - Migliorare la qualità complessiva del riconoscimento, non solo i simboli markdown
-  - Affinare il prompt con few-shot examples per simboli (`#`, `-`, `>`, `**`, `==`, ecc.)
-  - Valutare se `md-parser.ts` può coprire i casi che il prompt non gestisce
-  - Valutare modelli Gemini alternativi o parametri diversi (temperatura, ecc.)
+- **Keyword personalizzate nelle impostazioni** — `src/settings.ts` + `src/md-parser.ts`:
+  - Permettere all'utente di aggiungere keyword custom nella pagina impostazioni
+  - Ogni keyword custom ha: nome (es. `FIRMA`), output markdown (es. `— Mario Rossi`)
+  - Le keyword custom vengono caricate in `expandKeywords` insieme a quelle predefinite
+

@@ -271,6 +271,16 @@ Cambiamenti implementati durante la fase 2:
 
 ---
 
+## Completato — Sistema keyword OCR (2026-03-23)
+
+- Sintassi `<KEYWORD> contenuto` (con `<>`) in `md-parser.ts`
+- `normalizeMarkdownSymbols`: strip BOM/zero-width chars da Gemini, correzioni simboli markdown scritti a mano
+- `expandKeywords`: 33 keyword con alias, case-insensitive, colon opzionale, multi-riga per TABLE/CODEBLOCK/MATHBLOCK
+- Sezione "Keyword riconosciute dal parser OCR" collassabile nelle impostazioni
+- Test autonomo `src/parser.test.ts` (77 test, eseguibile con `npx tsx src/parser.test.ts`)
+
+---
+
 ## Ricerca effettuata — Plugin esistenti
 
 ### Nessuno fa esattamente questo. Gap confermato.
