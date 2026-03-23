@@ -7,11 +7,92 @@
 .hwm_container {
 	position: relative;
 	border: 1px solid var(--background-modifier-border);
-	border-radius: 8px;
+	border-radius: var(--radius-m);
 	overflow: hidden;
 	margin: 8px 0;
 	/* Sfondo SEMPRE bianco (anche in dark mode) */
 	background: #ffffff;
+	/* Riabilita pointer-events (i wrapper CM6 sopra hanno pointer-events: none
+	   per non bloccare l'hit-test dell'handwriting Android) */
+	pointer-events: auto;
+}
+
+/* --- Modalità handwriting Android (switch nelle impostazioni) ---
+   Quando attiva (classe hwm-handwriting-mode su document.body), i riquadri
+   handwriting mostrano un box compatto con icona invece dell'SVG a piena
+   altezza. Questo riduce l'area CE=false che interferisce con la proximity
+   detection dello stylus handwriting di Android.
+   L'SVG viene nascosto; il pannello portale (position:absolute) rimane visibile
+   sopra il box per permettere apertura editor, conversione ed eliminazione. */
+.hwm-handwriting-mode .hwm-badge-mode {
+	/* Larghezza piena: lo span .internal-embed di default può restare stretto
+	   quanto l'immagine — forziamo 100% per contenere correttamente il pannello portale */
+	width: 100% !important;
+	box-sizing: border-box !important;
+	/* Altezza fissa: abbastanza alta da contenere il pannello portale (~34px)
+	   senza occupare troppo spazio nel documento */
+	height: 72px !important;
+	max-height: 72px !important;
+	min-height: 72px !important;
+	overflow: hidden;
+	cursor: default;
+	/* Flex per centrare l'icona */
+	display: flex !important;
+	align-items: center;
+	justify-content: center;
+	background: var(--background-secondary, #f0f0f0);
+	border-radius: var(--radius-m);
+}
+/* Nasconde l'SVG: mostriamo solo il box con l'icona */
+.hwm-handwriting-mode .hwm-badge-mode img {
+	display: none !important;
+}
+/* Icona matita centrata via pseudo-elemento */
+.hwm-handwriting-mode .hwm-badge-mode::after {
+	content: "✏️";
+	font-size: 28px;
+	opacity: 0.5;
+	pointer-events: none;
+}
+
+/* SVG a piena larghezza in tutti i contesti (desktop).
+   Su mobile le regole .hwm-handwriting-mode sovrastano questo.
+   NO overflow:hidden sullo span: clipperebbe i tratti ai bordi dell'SVG.
+   Il border-radius va sull'img per arrotondarne gli angoli visivi. */
+.internal-embed[src*="_handwriting/"] {
+	display: block;
+	width: 100%;
+	border-radius: var(--radius-m);
+	/* Bordo e ombra per rendere il riquadro visibile contro lo sfondo Obsidian */
+	border: 1.5px solid var(--background-modifier-border);
+	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+	/* Elimina whitespace implicito sotto l'img (gap tra img e bordo su Android) */
+	padding: 0;
+	line-height: 0;
+}
+.internal-embed[src*="_handwriting/"] img {
+	display: block;
+	width: 100%;
+	height: auto;
+	max-height: none;
+	border-radius: var(--radius-m);
+}
+
+/* Variante wiki ![[svg]]:
+   La classe hwm_container viene aggiunta DIRETTAMENTE allo span
+   .internal-embed di Obsidian (nessun wrapper esterno, per non
+   spostare i nodi CM6 e causare crash del virtual DOM).
+   L'immagine è già renderizzata da Obsidian; noi aggiungiamo solo
+   i bottoni come figli dello span. */
+.hwm_container--wiki {
+	background: transparent; /* l'SVG ha già il suo sfondo */
+	width: 100%;
+	box-sizing: border-box;
+}
+.hwm_container--wiki img {
+	display: block;
+	width: 100%;
+	height: auto;
 }
 
 /* --- Toolbar in alto a destra --- */
@@ -25,7 +106,7 @@
 	gap: 0; /* spacing gestito via margin-right sui bottoni, così i bottoni
 	           nascosti (max-width:0, margin:0) non creano spazi vuoti */
 	padding: 3px 6px;
-	border-radius: 6px;
+	border-radius: var(--radius-m);
 	background: rgba(240, 240, 240, 0.95);
 	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
 	opacity: 1;
@@ -41,7 +122,7 @@
 	height: 28px;
 	padding: 0;
 	border: none;
-	border-radius: 4px;
+	border-radius: var(--radius-s);
 	background: transparent;
 	color: #666;
 	cursor: pointer;
@@ -116,11 +197,17 @@
 /* --- Area canvas (editing) --- */
 .hwm_canvas-wrap {
 	width: 100%;
-	overflow: hidden;
+	/* Centra il canvas orizzontalmente quando il modal/tab è più largo
+	   della risoluzione nativa del canvas (canvasWidth dalle settings) */
+	display: flex;
+	justify-content: center;
 }
 .hwm_canvas {
 	display: block;
-	width: 100%;
+	/* max-width invece di width:100% per evitare che il canvas venga stirato
+	   oltre la sua risoluzione nativa (canvasWidth dai settings).
+	   Stirarlo causerebbe tratti pixelati nel modal / tab full-screen. */
+	max-width: 100%;
 	cursor: crosshair;
 	/* Sfondo bianco fisso */
 	background: #ffffff;
@@ -144,6 +231,15 @@
 .hwm_resize-handle:hover {
 	background: #ebebeb;
 	color: #666;
+}
+.hwm_resize-handle--dark {
+	background: #2a2a2a;
+	border-top-color: #444;
+	color: #888;
+}
+.hwm_resize-handle--dark:hover {
+	background: #333;
+	color: #aaa;
 }
 
 /* --- Placeholder per canvas vuoto --- */
@@ -236,7 +332,7 @@
 	margin-right: 6px !important; /* spacing via margin, non gap */
 	background: rgba(245, 245, 245, 0.98) !important;
 	border: 1px solid rgba(0, 0, 0, 0.18) !important;
-	border-radius: 7px !important;
+	border-radius: var(--radius-m) !important;
 	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18) !important;
 	color: #222 !important;
 }
@@ -256,4 +352,255 @@
 	background: var(--interactive-accent) !important;
 	border-color: var(--interactive-accent) !important;
 	color: #fff !important;
+}
+
+/* ========================================
+   INLINE PREVIEW — Vista nel documento
+   ======================================== */
+
+/* --- Bottoni inline (X, converti, comprimi) ---
+   Posizionati in alto a sinistra per non coprire il bottone </> di Obsidian */
+.hwm_inline-buttons {
+	position: absolute;
+	top: 6px;
+	left: 6px;
+	z-index: 5;
+	display: flex;
+	gap: 4px;
+	padding: 3px;
+	border-radius: var(--radius-m);
+	background: rgba(240, 240, 240, 0.9);
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+.hwm_inline-buttons--dark {
+	background: rgba(40, 40, 40, 0.95);
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+.hwm_inline-buttons--dark .hwm_btn {
+	color: #bbb;
+}
+.hwm_inline-buttons--dark .hwm_btn:hover {
+	background: rgba(255, 255, 255, 0.12);
+	color: #fff;
+}
+
+/* --- Bottone comprimi: rotazione 180° quando compresso --- */
+.hwm_collapse-btn {
+	transition: transform 0.3s ease, max-width 0.2s ease,
+	            opacity 0.2s ease, margin 0.2s ease, padding 0.2s ease;
+}
+.hwm_collapse-btn.hwm_rotated {
+	transform: rotate(180deg);
+}
+
+/* --- Preview SVG inline --- */
+.hwm_inline-preview {
+	width: 100%;
+	overflow: hidden;
+	cursor: pointer;
+	/* Transizione per l'espansione/compressione */
+	transition: max-height 0.3s ease;
+}
+.hwm_inline-preview.hwm_collapsed {
+	/* max-height impostato via JS */
+	overflow: hidden;
+}
+
+/* Preview SVG via background-image (nessun <img> nel DOM per non
+   interferire con l'handwriting Android dentro cm-content) */
+.hwm_preview-bg {
+	width: 100%;
+	height: 0; /* l'altezza è data da padding-bottom (aspect ratio) */
+	background-size: 100% auto;
+	background-repeat: no-repeat;
+	background-position: top left;
+	pointer-events: none; /* il click è gestito dal div padre */
+}
+
+/* ========================================
+   PANNELLO PORTALE — Fuori da cm-content
+   Contiene tutti i bottoni del formato wiki.
+   Vive in document.body → zero impatto su
+   cm-content → non rompe handwriting Android
+   ======================================== */
+
+/* Pannello con tutti i bottoni (nuovo formato ![[svg]]).
+   Vive dentro lo span .internal-embed (position: relative impostato via JS).
+   Con position: absolute segue il DOM: scompare quando lo span non è visibile
+   (scroll, impostazioni aperte, cambio tab) senza nessuna logica JS aggiuntiva. */
+.hwm_portal-panel {
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	z-index: 10; /* sufficiente per stare sopra l'img interna */
+	display: flex;
+	align-items: center;
+	gap: 0; /* spacing via margin-right sui .hwm_btn */
+	padding: 3px 6px;
+	border-radius: var(--radius-m);
+	background: rgba(240, 240, 240, 0.95);
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+	/* Lo span padre ha pointer-events:none (per handwriting Android):
+	   ripristina i click sui bottoni del pannello */
+	pointer-events: auto;
+}
+/* Tema scuro del pannello portale (classe aggiunta via JS in base a bgMode) */
+.hwm_portal-panel--dark {
+	background: rgba(40, 40, 40, 0.97);
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+.hwm_portal-panel--dark .hwm_btn {
+	color: #bbb !important;
+}
+.hwm_portal-panel--dark .hwm_btn:hover {
+	background: rgba(255, 255, 255, 0.12) !important;
+	color: #fff !important;
+}
+
+/* Bottone cerchio singolo (formato legacy) */
+.hwm_portal-btn {
+	position: fixed; /* coordinate viewport, aggiornate via JS */
+	z-index: 100;
+	/* Cerchio perfetto: dimensioni fisse con !important per sovrascrivere
+	   gli stili globali di Obsidian sui button che aggiungono padding */
+	width: 36px !important;
+	height: 36px !important;
+	min-width: 36px !important;
+	min-height: 36px !important;
+	padding: 0 !important;
+	border-radius: 50% !important;
+	border: none !important;
+	background: var(--interactive-accent) !important;
+	color: #ffffff !important;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden; /* evita che l'SVG allarghi il bottone */
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+	transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.hwm_portal-btn svg {
+	width: 18px !important;
+	height: 18px !important;
+	flex-shrink: 0;
+	stroke: #ffffff !important; /* forza icona bianca indipendentemente da currentColor */
+}
+.hwm_portal-btn:hover {
+	transform: scale(1.1);
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+/* ========================================
+   DRAWING MODAL — Editor come overlay
+   ======================================== */
+
+.hwm_modal {
+	width: 95vw !important;
+	max-width: 95vw !important;
+	height: 90vh;
+	display: flex;
+	flex-direction: column;
+	border-radius: var(--radius-l) !important;
+	overflow: hidden !important;
+}
+.hwm_modal .modal-content {
+	flex: 1;
+	padding: 0;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+	border-radius: var(--radius-l);
+}
+
+/* ========================================
+   EDITOR VIEW — Tab dedicata al disegno
+   ======================================== */
+
+/* Container principale dell'editor view */
+.hwm_editor-view {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+}
+
+/* --- Top bar: ← a sinistra | toolbar a destra --- */
+.hwm_editor-topbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 6px 8px;
+	background: rgba(240, 240, 240, 0.95) !important; /* !important: impedisce a Obsidian dark mode di sovrascrivere il topbar */
+	border-bottom: 1px solid #ddd !important;
+	flex-shrink: 0;
+	gap: 8px;
+}
+.hwm_editor-topbar--dark {
+	background: rgba(40, 40, 40, 0.97) !important;
+	border-bottom-color: #444 !important;
+}
+
+/* Forza background e colore icone dentro il topbar dell'editor.
+   Obsidian dark theme ha regole tipo ".modal-content button { background: var(...) }"
+   con specificità 0,1,1 > 0,1,0 di .hwm_btn: senza !important qui sotto, i bottoni
+   rimangono scuri anche in light mode. Le due regole .hwm_btn e --dark .hwm_btn hanno
+   stessa specificità (0,2,0) ma --dark appare dopo → vince in dark mode. */
+.hwm_editor-topbar .hwm_btn {
+	background: transparent !important;
+	color: #333 !important;
+}
+.hwm_editor-topbar--dark .hwm_btn {
+	background: transparent !important;
+	color: #bbb !important;
+}
+/* Hover light: sfondo grigio chiaro */
+.hwm_editor-topbar .hwm_btn:hover:not(.hwm_active) {
+	background: #e0e0e0 !important;
+	color: #333 !important;
+}
+/* Hover dark: sfondo bianco semi-trasparente */
+.hwm_editor-topbar--dark .hwm_btn:hover:not(.hwm_active) {
+	background: rgba(255, 255, 255, 0.12) !important;
+	color: #fff !important;
+}
+/* Bottone attivo (tool selezionato): sempre sfondo accent e icona bianca */
+.hwm_editor-topbar .hwm_btn.hwm_active {
+	background: var(--interactive-accent) !important;
+	color: #ffffff !important;
+}
+
+/* Bottone ← (indietro, a sinistra) */
+.hwm_back-btn {
+	flex-shrink: 0;
+}
+
+/* Toolbar dentro l'editor view: posizione statica, allineata a destra */
+.hwm_editor-toolbar {
+	position: static !important;
+	top: auto !important;
+	right: auto !important;
+	box-shadow: none !important;
+	background: transparent !important;
+	padding: 0 !important;
+}
+
+/* Topbar del DrawingModal: centra la toolbar (non c'è backBtn come nell'EditorView) */
+.hwm_editor-topbar--modal {
+	justify-content: center;
+}
+
+/* --- Scroll container per il canvas nell'editor --- */
+.hwm_editor-scroll {
+	flex: 1;
+	overflow-y: auto;
+	overflow-x: hidden;
+}
+
+/* --- Resize handle disabilitato (visibile ma non interattivo) --- */
+.hwm_resize-handle--disabled {
+	pointer-events: none;
+	cursor: default;
+}
+.hwm_resize-handle--disabled:hover {
+	background: #f5f5f5; /* annulla l'effetto hover */
 }

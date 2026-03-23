@@ -12,7 +12,10 @@
       "WebFetch(domain:stackoverflow.com)",
       "WebFetch(domain:crbug.com)",
       "WebFetch(domain:www.reddit.com)",
-      "WebFetch(domain:bugs.chromium.org)"
+      "WebFetch(domain:bugs.chromium.org)",
+      "WebFetch(domain:developer.chrome.com)",
+      "Bash(\"C:\\\\Program Files\\\\Git\\\\bin\\\\bash.exe\" --login -c \"cd 'C:/Projects/pluginObsidian/handWrittenMarkdownConverter/HandTranscriptMd' && bash deploy.sh && bash cloudDeploy.sh\" 2>&1)",
+      "Bash(\"C:\\\\Program Files\\\\Git\\\\bin\\\\bash.exe\" --login -c \"cd 'C:/Projects/pluginObsidian/handWrittenMarkdownConverter/HandTranscriptMd' && bash deploy.sh\" 2>&1)"
     ]
   }
 }
