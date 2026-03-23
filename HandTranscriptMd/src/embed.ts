@@ -339,23 +339,19 @@ async function doConvertWiki(
 	sourcePath: string,
 	plugin: HandwritingPlugin
 ) {
-	try {
-		new Notice('Riconoscimento in corso…');
-		const parser = new DOMParser();
-		const svgEl  = parser.parseFromString(svgContent, 'image/svg+xml')
-			.documentElement as unknown as SVGElement;
-		const base64     = await svgToBase64Png(svgEl);
-		const recognizer = getRecognizer(plugin.settings.geminiApiKey, plugin.settings.ocrLanguages);
-		const rawText    = await recognizer.recognize(base64);
-		if (!rawText.trim()) { new Notice('Nessun testo riconosciuto'); return; }
-
-		const markdown = parseMarkdown(rawText);
-		await archiveSvgByPath(svgPath, plugin);
-		await replaceWikiEmbedWithMarkdown(svgPath, markdown, sourcePath, plugin);
-		new Notice('Conversione completata!');
-	} catch (e: unknown) {
-		new Notice('Errore OCR: ' + (e instanceof Error ? e.message : String(e)));
-	}
+	// Lancia eccezione in caso di errore (il chiamante decide se mostrare Notice o propagare)
+	new Notice('Riconoscimento in corso…');
+	const parser = new DOMParser();
+	const svgEl  = parser.parseFromString(svgContent, 'image/svg+xml')
+		.documentElement as unknown as SVGElement;
+	const base64     = await svgToBase64Png(svgEl);
+	const recognizer = getRecognizer(plugin.settings.geminiApiKey, plugin.settings.ocrLanguages);
+	const rawText    = await recognizer.recognize(base64);
+	if (!rawText.trim()) throw new Error('Nessun testo riconosciuto');
+	const markdown = parseMarkdown(rawText);
+	await archiveSvgByPath(svgPath, plugin);
+	await replaceWikiEmbedWithMarkdown(svgPath, markdown, sourcePath, plugin);
+	new Notice('Conversione completata!');
 }
 
 /* =============================================
@@ -660,14 +656,6 @@ function createPortalPanel(
 
 	// --- Bottone converti in Markdown ---
 	const convertBtn = createPanelBtn(panel, 'file-text', 'Converti in Markdown');
-	convertBtn.addEventListener('click', async () => {
-		const { strokes, svgContent } = await loadSvgData(svgPath, plugin);
-		if (!svgContent || strokes.length === 0) {
-			new Notice('Nessun tratto da convertire');
-			return;
-		}
-		await doConvertWiki(svgContent, svgPath, sourcePath, plugin);
-	});
 
 	// --- Bottone comprimi/espandi ---
 	// Usa height + overflow:hidden sul container (non max-height sull'<img>):
@@ -676,20 +664,6 @@ function createPortalPanel(
 	// anche da compresso (collapsedHeight è sempre >> 6px + altezza pannello).
 	const collapseBtn = createPanelBtn(panel, 'chevron-up', 'Comprimi');
 	collapseBtn.classList.add('hwm_collapse-btn');
-	collapseBtn.addEventListener('click', () => {
-		isExpanded = !isExpanded;
-		if (isExpanded) {
-			container.style.height   = '';
-			container.style.overflow = '';
-			collapseBtn.classList.remove('hwm_rotated');
-			collapseBtn.title = 'Comprimi';
-		} else {
-			container.style.height   = collapsedHeight + 'px';
-			container.style.overflow = 'hidden';
-			collapseBtn.classList.add('hwm_rotated');
-			collapseBtn.title = 'Espandi';
-		}
-	});
 
 	// --- Bottone elimina ---
 	const deleteBtn = createPanelBtn(panel, 'x', 'Elimina riquadro');
@@ -698,6 +672,41 @@ function createPortalPanel(
 		if (!confirm('Eliminare questo riquadro handwriting e il file SVG associato?')) return;
 		await removeWikiEmbed(svgPath, sourcePath, plugin);
 	});
+
+	// --- Funzioni condivise: usate dai bottoni e dal menu globale (⋮ Obsidian) ---
+	const doExpand = () => {
+		isExpanded = true;
+		container.style.height   = '';
+		container.style.overflow = '';
+		collapseBtn.classList.remove('hwm_rotated');
+		collapseBtn.title = 'Comprimi';
+	};
+	const doCollapse = () => {
+		isExpanded = false;
+		container.style.height   = collapsedHeight + 'px';
+		container.style.overflow = 'hidden';
+		collapseBtn.classList.add('hwm_rotated');
+		collapseBtn.title = 'Espandi';
+	};
+	// Carica SVG e chiama doConvertWiki (che lancia eccezione in caso di errore)
+	const doConvertAction = async () => {
+		const { strokes, svgContent } = await loadSvgData(svgPath, plugin);
+		if (!svgContent || strokes.length === 0) throw new Error('Nessun tratto da convertire');
+		await doConvertWiki(svgContent, svgPath, sourcePath, plugin);
+	};
+
+	collapseBtn.addEventListener('click', () => {
+		if (isExpanded) doCollapse(); else doExpand();
+	});
+	convertBtn.addEventListener('click', async () => {
+		// Bottone singolo: mostra Notice in caso di errore senza propagare
+		try { await doConvertAction(); }
+		catch (e: unknown) { new Notice('Errore OCR: ' + (e instanceof Error ? e.message : String(e))); }
+	});
+
+	// Registra le azioni nel plugin per il menu "⋮ Espandi/Collassa/Converti tutti"
+	plugin.embedActions.set(embedId, { expand: doExpand, collapse: doCollapse, convert: doConvertAction, container, sourcePath });
+	plugin.register(() => plugin.embedActions.delete(embedId));
 
 	// Layout-change: su Mobile nasconde il pannello quando la tab editor è aperta
 	const onLayoutChange = () => {
