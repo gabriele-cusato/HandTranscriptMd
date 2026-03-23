@@ -271,6 +271,12 @@ Cambiamenti implementati durante la fase 2:
 
 ---
 
+## Completato — Bug tabella //TABLE (2026-03-24)
+
+Bug: le righe dati della tabella venivano lasciate come testo grezzo. Il parser era corretto (83 test passati); la causa era Gemini che modificava i tag `<KEYWORD>` (riconosciuti come HTML). Risolto cambiando la sintassi delle keyword da `<KEYWORD>` a `//KEYWORD` (doppio slash), più affidabile per l'OCR di scrittura a mano. Aggiunto anche log debug in `embed.ts` che mostra il testo grezzo Gemini in un Notice (30s) quando la modalità debug è attiva.
+
+---
+
 ## Completato — Sistema keyword OCR (2026-03-23)
 
 - Sintassi `<KEYWORD> contenuto` (con `<>`) in `md-parser.ts`

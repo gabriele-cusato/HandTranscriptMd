@@ -223,19 +223,6 @@ cd C:\Projects\pluginObsidian\handWrittenMarkdownConverter\HandTranscriptMd; nod
 
 ### Task aperti
 
-- **Bug `<TABLE>` multi-riga** — `src/md-parser.ts` → `expandKeywords`, case `TABLE`:
-  - Le intestazioni vengono generate correttamente ma le righe dati vengono lasciate invariate
-  - Esempio input:
-    ```
-    <TABLE> Col1, Col2, Col3
-    val1, val2, val3
-    val4, val5, val6
-    <TABLE>
-    ```
-  - Output atteso: tabella completa con intestazioni + righe dati
-  - Output attuale: intestazioni ok, poi le righe dati restano come testo grezzo (`val1,val2,val3`) seguite da `| |` e `|---|`
-  - Probabile causa: il loop di raccolta righe in `case 'TABLE'` non legge correttamente le righe successive
-
 - **Keyword personalizzate nelle impostazioni** — `src/settings.ts` + `src/md-parser.ts`:
   - Permettere all'utente di aggiungere keyword custom nella pagina impostazioni
   - Ogni keyword custom ha: nome (es. `FIRMA`), output markdown (es. `— Mario Rossi`)
