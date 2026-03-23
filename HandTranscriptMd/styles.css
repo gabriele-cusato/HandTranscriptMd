@@ -66,6 +66,9 @@
 	/* Bordo e ombra per rendere il riquadro visibile contro lo sfondo Obsidian */
 	border: 1.5px solid var(--background-modifier-border);
 	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+	/* Elimina whitespace implicito sotto l'img (gap tra img e bordo su Android) */
+	padding: 0;
+	line-height: 0;
 }
 .internal-embed[src*="_handwriting/"] img {
 	display: block;
