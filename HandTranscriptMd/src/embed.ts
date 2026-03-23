@@ -349,6 +349,8 @@ async function doConvertWiki(
 	const rawText    = await recognizer.recognize(base64);
 	if (!rawText.trim()) throw new Error('Nessun testo riconosciuto');
 	const markdown = parseMarkdown(rawText);
+	// In modalità debug mostra il testo grezzo restituito da Gemini (prima del parsing)
+	if (plugin.settings.debugMode) new Notice(`[DEBUG] Testo grezzo Gemini:\n${rawText}`, 30000);
 	await archiveSvgByPath(svgPath, plugin);
 	await replaceWikiEmbedWithMarkdown(svgPath, markdown, sourcePath, plugin);
 	new Notice('Conversione completata!');
@@ -375,6 +377,8 @@ async function doConvert(
 		if (!rawText.trim()) { new Notice('Nessun testo riconosciuto'); return; }
 
 		const markdown = parseMarkdown(rawText);
+		// In modalità debug mostra il testo grezzo restituito da Gemini (prima del parsing)
+		if (plugin.settings.debugMode) new Notice(`[DEBUG] Testo grezzo Gemini:\n${rawText}`, 30000);
 		await archiveSvg(data, plugin);
 		await replaceEmbedWithMarkdown(ctx, data, markdown, plugin);
 		new Notice('Conversione completata!');

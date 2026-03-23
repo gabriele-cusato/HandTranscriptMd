@@ -104,88 +104,93 @@ describe('normalizeMarkdownSymbols — blocchi codice protetti', () => {
 // =============================================================================
 
 describe('expandKeywords — titoli', () => {
-	expect(expand('<H1> Titolo')).toBe('# Titolo');
-	expect(expand('<H2> Sezione')).toBe('## Sezione');
-	expect(expand('<H3> Sub')).toBe('### Sub');
-	expect(expand('<H4> Piccolo')).toBe('#### Piccolo');
+	expect(expand('//H1 Titolo')).toBe('# Titolo');
+	expect(expand('//H2 Sezione')).toBe('## Sezione');
+	expect(expand('//H3 Sub')).toBe('### Sub');
+	expect(expand('//H4 Piccolo')).toBe('#### Piccolo');
 });
 
 describe('expandKeywords — inline style', () => {
-	expect(expand('<B> parola')).toBe('**parola**');
-	expect(expand('<I> corsivo')).toBe('*corsivo*');
-	expect(expand('<BI> entrambi')).toBe('***entrambi***');
-	expect(expand('<S> barrato')).toBe('~~barrato~~');
-	expect(expand('<HL> evidenziato')).toBe('==evidenziato==');
-	expect(expand('<CODE> var x')).toBe('`var x`');
+	expect(expand('//B parola')).toBe('**parola**');
+	expect(expand('//I corsivo')).toBe('*corsivo*');
+	expect(expand('//BI entrambi')).toBe('***entrambi***');
+	expect(expand('//S barrato')).toBe('~~barrato~~');
+	expect(expand('//HL evidenziato')).toBe('==evidenziato==');
+	expect(expand('//CODE var x')).toBe('`var x`');
 });
 
 describe('expandKeywords — liste', () => {
-	expect(expand('<LIST> a, b, c')).toBe('- a\n- b\n- c');
-	expect(expand('<NUMLIST> a, b, c')).toBe('1. a\n2. b\n3. c');
-	expect(expand('<CHECK> task1, task2')).toBe('- [ ] task1\n- [ ] task2');
+	expect(expand('//LIST a, b, c')).toBe('- a\n- b\n- c');
+	expect(expand('//NUMLIST a, b, c')).toBe('1. a\n2. b\n3. c');
+	expect(expand('//CHECK task1, task2')).toBe('- [ ] task1\n- [ ] task2');
 });
 
 describe('expandKeywords — tabella', () => {
-	expect(expand('<TABLE> A, B, C')).toContain('| A | B | C |');
-	expect(expand('<TABLE> A, B, C')).toContain('|---|---|---|');
+	expect(expand('//TABLE A, B, C')).toContain('| A | B | C |');
+	expect(expand('//TABLE A, B, C')).toContain('|---|---|---|');
+	// Tabella con righe dati e tag di chiusura
+	const tableInput = '//TABLE Col1, Col2, Col3\nval1, val2, val3\nval4, val5, val6\n//TABLE';
+	const tableOut   = expand(tableInput);
+	expect(tableOut).toContain('| Col1 | Col2 | Col3 |');
+	expect(tableOut).toContain('| val1 | val2 | val3 |');
+	expect(tableOut).toContain('| val4 | val5 | val6 |');
 });
 
 describe('expandKeywords — callout', () => {
-	expect(expand('<NOTE> testo')).toBe('> [!NOTE]\n> testo');
-	expect(expand('<WARN> testo')).toBe('> [!WARNING]\n> testo');
-	expect(expand('<TIP> testo')).toBe('> [!TIP]\n> testo');
-	expect(expand('<INFO> testo')).toBe('> [!INFO]\n> testo');
-	expect(expand('<ERROR> testo')).toBe('> [!ERROR]\n> testo');
-	expect(expand('<IMPORTANT> testo')).toBe('> [!IMPORTANT]\n> testo');
-	expect(expand('<QUOTE> testo')).toBe('> testo');
+	expect(expand('//NOTE testo')).toBe('> [!NOTE]\n> testo');
+	expect(expand('//WARN testo')).toBe('> [!WARNING]\n> testo');
+	expect(expand('//TIP testo')).toBe('> [!TIP]\n> testo');
+	expect(expand('//INFO testo')).toBe('> [!INFO]\n> testo');
+	expect(expand('//ERROR testo')).toBe('> [!ERROR]\n> testo');
+	expect(expand('//IMPORTANT testo')).toBe('> [!IMPORTANT]\n> testo');
+	expect(expand('//QUOTE testo')).toBe('> testo');
 });
 
 describe('expandKeywords — link e immagini', () => {
-	expect(expand('<LINK> Google, https://google.com')).toBe('[Google](https://google.com)');
-	expect(expand('<IMG> logo, https://example.com/img.png')).toBe('![logo](https://example.com/img.png)');
+	expect(expand('//LINK Google, https://google.com')).toBe('[Google](https://google.com)');
+	expect(expand('//IMG logo, https://example.com/img.png')).toBe('![logo](https://example.com/img.png)');
 });
 
 describe('expandKeywords — separatori', () => {
-	expect(expand('<HR>')).toBe('---');
-	expect(expand('<SEP>')).toBe('---');
+	expect(expand('//HR')).toBe('---');
+	expect(expand('//SEP')).toBe('---');
 });
 
 describe('expandKeywords — footnote', () => {
-	expect(expand('<FN> questa è una nota')).toBe('[^1]: questa è una nota');
+	expect(expand('//FN questa è una nota')).toBe('[^1]: questa è una nota');
 	// Due footnote consecutive: numeri 1 e 2
-	expect(expand('<FN> prima\n<FN> seconda')).toBe('[^1]: prima\n[^2]: seconda');
+	expect(expand('//FN prima\n//FN seconda')).toBe('[^1]: prima\n[^2]: seconda');
 	// Partenza custom
-	expect(expand('<FN> nota', 5)).toBe('[^5]: nota');
+	expect(expand('//FN nota', 5)).toBe('[^5]: nota');
 });
 
 describe('expandKeywords — math', () => {
-	expect(expand('<MATH> E=mc^2')).toBe('$E=mc^2$');
+	expect(expand('//MATH E=mc^2')).toBe('$E=mc^2$');
 });
 
 describe('expandKeywords — tag e date/ora', () => {
-	expect(expand('<TAG> progetto')).toBe('#progetto');
-	expect(expand('<TAG> due parole')).toBe('#due_parole');
-	// <DATE>, <TIME>, <DATETIME> usano la data corrente: verifichiamo solo il formato
-	const dateOut = expand('<DATE>');
+	expect(expand('//TAG progetto')).toBe('#progetto');
+	expect(expand('//TAG due parole')).toBe('#due_parole');
+	// //DATE, //TIME, //DATETIME usano la data corrente: verifichiamo solo il formato
+	const dateOut = expand('//DATE');
 	expect(typeof dateOut === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateOut) ? 'ok' : 'fail').toBe('ok');
 });
 
 describe('expandKeywords — alias e case-insensitive', () => {
-	expect(expand('<bold> testo')).toBe('**testo**');   // alias BOLD = B
-	expect(expand('<BOLD> testo')).toBe('**testo**');
-	expect(expand('<strike> testo')).toBe('~~testo~~'); // alias STRIKE = S
-	expect(expand('<hr>')).toBe('---');                 // lowercase
-	expect(expand('<Table> A, B')).toContain('| A | B |'); // mixed case
+	expect(expand('//bold testo')).toBe('**testo**');   // alias BOLD = B
+	expect(expand('//BOLD testo')).toBe('**testo**');
+	expect(expand('//strike testo')).toBe('~~testo~~'); // alias STRIKE = S
+	expect(expand('//hr')).toBe('---');                 // lowercase
+	expect(expand('//Table A, B')).toContain('| A | B |'); // mixed case
 });
 
-describe('expandKeywords — colon opzionale dopo >', () => {
-	expect(expand('<B>testo')).toBe('**testo**');       // nessun separatore
-	expect(expand('<H1>Titolo')).toBe('# Titolo');      // nessun separatore
-	expect(expand('<B>: testo')).toBe('**testo**');     // con colon
+describe('expandKeywords — colon opzionale', () => {
+	expect(expand('//B: testo')).toBe('**testo**');     // con colon
+	expect(expand('//H1: Titolo')).toBe('# Titolo');    // con colon
 });
 
 describe('expandKeywords — CODEBLOCK multi-riga', () => {
-	const input = '<CODEBLOCK js>\nconsole.log(\'ciao\')\nconst x = 1\n';
+	const input = '//CODEBLOCK js\nconsole.log(\'ciao\')\nconst x = 1\n';
 	const out   = expand(input);
 	expect(out).toContain('```js');
 	expect(out).toContain('console.log(\'ciao\')');
@@ -193,7 +198,7 @@ describe('expandKeywords — CODEBLOCK multi-riga', () => {
 });
 
 describe('expandKeywords — indent', () => {
-	expect(expand('<INDENT> testo')).toBe('  testo');
+	expect(expand('//INDENT testo')).toBe('  testo');
 });
 
 // =============================================================================
@@ -201,10 +206,16 @@ describe('expandKeywords — indent', () => {
 // =============================================================================
 
 describe('pipeline completa', () => {
-	expect(parse('#Ciao\n<LIST> a, b')).toBe('# Ciao\n- a\n- b');
-	expect(parse('##sezione\n<B> parola chiave')).toBe('## Sezione\n**parola chiave**');
+	expect(parse('#Ciao\n//LIST a, b')).toBe('# Ciao\n- a\n- b');
+	expect(parse('##sezione\n//B parola chiave')).toBe('## Sezione\n**parola chiave**');
 	// Il blocco codice non viene toccato dalla normalizzazione
 	expect(parse('```\n#non toccare\n```')).toBe('```\n#non toccare\n```');
+	// Tabella con righe dati attraverso la pipeline completa
+	const tableInput = '//TABLE Col1, Col2, Col3\nval1, val2, val3\nval4, val5, val6\n//TABLE';
+	const tableOut   = parse(tableInput);
+	expect(tableOut).toContain('| Col1 | Col2 | Col3 |');
+	expect(tableOut).toContain('| val1 | val2 | val3 |');
+	expect(tableOut).toContain('| val4 | val5 | val6 |');
 });
 
 // =============================================================================

@@ -57,8 +57,8 @@ export function normalizeMarkdownSymbols(rawText: string): string {
  * Applica le correzioni su una singola riga (non dentro blocchi codice).
  */
 function normalizeLine(line: string): string {
-	// Righe keyword <KEYWORD> — non modificare, le gestisce expandKeywords
-	if (/^<[A-Za-z0-9_]+/i.test(line.trim())) return line;
+	// Righe keyword //KEYWORD — non modificare, le gestisce expandKeywords
+	if (/^\/\/[A-Za-z0-9_]/i.test(line.trim())) return line;
 
 	// Rimuove spazi finali (non iniziali: servono per le liste annidate)
 	line = line.trimEnd();
@@ -194,10 +194,10 @@ export function expandKeywords(text: string, fnStart = 1): string {
 		const line    = lines[i];
 		const trimmed = line.trim();
 
-		// Pattern: <KEYWORD> contenuto  oppure  <KEYWORD extra> contenuto  (es. <CODEBLOCK js>)
-		// Il parametro extra (linguaggio per CODEBLOCK) è dentro le <>: <CODEBLOCK js>
-		// Il contenuto segue > con opzionale : e/o spazio (es. <H1> CIAO, <H1>:CIAO)
-		const kw = trimmed.match(/^<([A-Za-z0-9_]+)(?:\s+([^>]*?))?\s*>[\s:]*(.*)/i);
+		// Pattern: //KEYWORD contenuto  oppure  //KEYWORD: contenuto  (colon opzionale)
+		// Es: //H1 CIAO, //LIST a, b, c, //CODEBLOCK js, //HR
+		// Il contenuto segue il nome keyword separato da spazio e/o ':'
+		const kw = trimmed.match(/^\/\/([A-Za-z0-9_]+)\s*:?\s*(.*)/i);
 
 		if (!kw) {
 			out.push(line);
@@ -206,8 +206,7 @@ export function expandKeywords(text: string, fnStart = 1): string {
 		}
 
 		const keyword = kw[1].toUpperCase();       // nome keyword normalizzato
-		const extra   = (kw[2] ?? '').trim();      // parametro aggiuntivo (es. linguaggio CODEBLOCK)
-		const content = (kw[3] ?? '').trim();      // contenuto dopo ':'
+		const content = (kw[2] ?? '').trim();      // contenuto dopo la keyword
 
 		switch (keyword) {
 
@@ -287,9 +286,9 @@ export function expandKeywords(text: string, fnStart = 1): string {
 			case 'INDENT': out.push(`  ${content}`); break;
 
 			// --- CODEBLOCK multi-riga (termina con riga vuota) ---
-			// Sintassi: _CODEBLOCK js:  (linguaggio nel parametro opzionale prima di ':')
+			// Sintassi: //CODEBLOCK js  (linguaggio dopo il nome keyword)
 			case 'CODEBLOCK': {
-				const lang = extra;  // es. "js", "python", ""
+				const lang = content;  // es. "js", "python", ""
 				i++;
 				const codeLines: string[] = [];
 				// Raccoglie righe fino alla prima riga vuota o fine testo
@@ -314,9 +313,9 @@ export function expandKeywords(text: string, fnStart = 1): string {
 			}
 
 			// --- TABLE multi-riga ---
-			// Header: <TABLE> Col1, Col2, Col3
+			// Header: //TABLE Col1, Col2, Col3
 			// Righe:  val1, val2, val3  (una per riga, virgola come separatore)
-			// Fine:   <TABLE>  (tag di chiusura) oppure riga vuota / senza virgola
+			// Fine:   //TABLE  (tag di chiusura) oppure riga vuota / senza virgola
 			case 'TABLE': {
 				const headers = content.split(',').map(h => h.trim());
 				const rows: string[][] = [];
@@ -324,7 +323,7 @@ export function expandKeywords(text: string, fnStart = 1): string {
 				while (i < lines.length) {
 					const rowLine = lines[i].trim();
 					// Tag di chiusura: "<TABLE>" senza contenuto
-					if (/^<TABLE>\s*$/i.test(rowLine)) { i++; break; }
+					if (/^\/\/TABLE\s*$/i.test(rowLine)) { i++; break; }
 					// Fine implicita: riga vuota o riga senza virgola
 					if (!rowLine || !rowLine.includes(',')) break;
 					rows.push(rowLine.split(',').map(c => c.trim()));
