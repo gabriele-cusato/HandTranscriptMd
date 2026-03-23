@@ -242,6 +242,72 @@
 	color: #aaa;
 }
 
+/* --- Pannello portale floating (document.body, position:fixed) --- */
+/* Stile chiaro (come la toolbar) — i bottoni .hwm_btn usano i loro colori di default */
+.hwm_portal-panel {
+	position: fixed;
+	z-index: 1000;
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: 0; /* spacing via margin-right sui .hwm_btn */
+	padding: 3px 6px;
+	background: rgba(240, 240, 240, 0.95);
+	border-radius: 6px;
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+	pointer-events: all;
+}
+
+/* --- Modal wiki editor --- */
+.hwm_wiki-modal-content {
+	padding: 0;
+	overflow-y: auto;
+}
+.hwm_wiki-modal-content .hwm_container {
+	border-radius: 0;
+	border: none;
+	margin: 0;
+}
+
+/* --- SVG collassato (bottone ↕) --- */
+.hwm-collapsed {
+	max-height: 48px !important;
+	overflow: hidden !important;
+}
+
+/* --- Preview mode --- */
+.hwm_preview-wrap {
+	position: relative;
+	display: block;
+	width: 100%;
+}
+/* L'immagine SVG occupa tutta la larghezza del container */
+.hwm_preview-img {
+	display: block;
+	width: 100%;
+	height: auto;
+}
+/* Bottone matita sovrapposto in alto a destra sulla preview */
+.hwm_pencil-btn {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	width: 32px !important;
+	height: 32px !important;
+	background: rgba(0, 0, 0, 0.45) !important;
+	border-radius: 6px !important;
+	color: #fff !important;
+	opacity: 0;
+	transition: opacity 0.15s;
+}
+.hwm_preview-wrap:hover .hwm_pencil-btn {
+	opacity: 1;
+}
+/* Su mobile il bottone è sempre visibile (no hover) */
+.hwm_mobile .hwm_pencil-btn {
+	opacity: 1 !important;
+}
+
 /* --- Placeholder per canvas vuoto --- */
 .hwm_placeholder {
 	text-align: center;
