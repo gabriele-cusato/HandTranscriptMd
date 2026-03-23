@@ -38,6 +38,14 @@ export default class HandwritingPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
+		// Rileva cambio tema Obsidian (aggiunta/rimozione classe 'theme-dark' sul body).
+		// Se bgMode è 'auto', notifica tutti i listener per aggiornare colori e SVG.
+		const themeObserver = new MutationObserver(() => {
+			if (this.settings.bgMode === 'auto') this.notifyBgModeChange();
+		});
+		themeObserver.observe(document.body, { attributeFilter: ['class'] });
+		this.register(() => themeObserver.disconnect());
+
 		// Registra la vista editor (tab dedicata per il disegno)
 		this.registerView(VIEW_TYPE_HANDWRITING, (leaf) => new DrawingEditorView(leaf, this));
 
@@ -68,6 +76,10 @@ export default class HandwritingPlugin extends Plugin {
 			DEFAULT_SETTINGS,
 			await this.loadData() as Partial<HandwritingSettings>
 		);
+		// Migrazione: 'custom' non esiste più → 'auto'
+		if ((this.settings.bgMode as string) === 'custom') {
+			this.settings.bgMode = 'auto';
+		}
 	}
 
 	async saveSettings() {

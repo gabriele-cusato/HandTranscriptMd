@@ -5,61 +5,46 @@
 import { App, PluginSettingTab, Setting } from 'obsidian';
 import type HandwritingPlugin from './main';
 
-// Modalità sfondo: chiaro, scuro o colore personalizzato
-export type BgMode = 'light' | 'dark' | 'custom';
+// Modalità sfondo: chiaro, scuro o automatico (segue il tema di Obsidian)
+export type BgMode = 'light' | 'dark' | 'auto';
 
 export interface HandwritingSettings {
 	svgFolder: string;            // cartella dove salvare i file SVG
 	canvasWidth: number;          // larghezza interna del canvas (px)
 	canvasHeight: number;         // altezza interna del canvas (px)
 	bgMode: BgMode;               // modalità sfondo
-	bgCustomColor: string;        // colore hex se bgMode === 'custom'
 	ocrLanguages: string[];       // lingue per il riconoscimento OCR (codici BCP-47, es. 'it', 'en')
 	geminiApiKey: string;         // chiave API Google Gemini per l'OCR
 	debugMode: boolean;           // mostra Notice di debug per eventi IME/touch
-	hwmHandwritingMode: boolean;  // se true, mostra badge al posto dell'SVG per non bloccare l'handwriting Android
 }
 
-// Colori predefiniti per le modalità
-export const BG_COLORS: Record<BgMode, string> = {
+// Colori predefiniti per le modalità light e dark
+export const BG_COLORS: Record<'light' | 'dark', string> = {
 	light: '#ffffff',
 	dark: '#1e1e1e',
-	custom: '#ffffff',
 };
 
 // Colore righe adattato allo sfondo
-export const LINE_COLORS: Record<BgMode, string> = {
+export const LINE_COLORS: Record<'light' | 'dark', string> = {
 	light: '#e0e0e0',
 	dark: '#3a3a3a',
-	custom: '#cccccc',
 };
+
+// Risolve 'auto' al tema effettivo leggendo la classe Obsidian sul body
+function resolveAutoMode(): 'light' | 'dark' {
+	return document.body.classList.contains('theme-dark') ? 'dark' : 'light';
+}
 
 // Ritorna il colore sfondo effettivo in base alle impostazioni
 export function getEffectiveBgColor(settings: HandwritingSettings): string {
-	if (settings.bgMode === 'custom') return settings.bgCustomColor;
-	return BG_COLORS[settings.bgMode];
+	const mode = settings.bgMode === 'auto' ? resolveAutoMode() : settings.bgMode;
+	return BG_COLORS[mode];
 }
 
 // Ritorna il colore righe effettivo in base alle impostazioni
 export function getEffectiveLineColor(settings: HandwritingSettings): string {
-	if (settings.bgMode === 'custom') {
-		// Per colore custom, calcola righe leggermente più scure/chiare
-		return adjustLineColor(settings.bgCustomColor);
-	}
-	return LINE_COLORS[settings.bgMode];
-}
-
-// Calcola un colore righe adatto allo sfondo custom
-// Se lo sfondo è chiaro → righe più scure, se scuro → righe più chiare
-function adjustLineColor(hex: string): string {
-	const r = parseInt(hex.slice(1, 3), 16);
-	const g = parseInt(hex.slice(3, 5), 16);
-	const b = parseInt(hex.slice(5, 7), 16);
-	// Luminosità percepita (formula sRGB)
-	const lum = (r * 0.299 + g * 0.587 + b * 0.114);
-	const shift = lum > 128 ? -30 : 30; // scurisci o schiarisci
-	const clamp = (v: number) => Math.max(0, Math.min(255, v + shift));
-	return `#${clamp(r).toString(16).padStart(2, '0')}${clamp(g).toString(16).padStart(2, '0')}${clamp(b).toString(16).padStart(2, '0')}`;
+	const mode = settings.bgMode === 'auto' ? resolveAutoMode() : settings.bgMode;
+	return LINE_COLORS[mode];
 }
 
 // Mappa colori chiari ↔ scuri per adattare i tratti al cambio tema.
@@ -70,17 +55,19 @@ const DARK_COLORS  = ['#ffffff', '#60a5fa', '#f87171', '#4ade80'];
 
 // Rimappa il colore di un tratto in base al tema corrente
 export function remapStrokeColor(color: string, bgMode: BgMode): string {
+	// 'auto' viene risolto al tema Obsidian attuale al momento della chiamata
+	const mode = bgMode === 'auto' ? resolveAutoMode() : bgMode;
 	const c = color.toLowerCase();
-	if (bgMode === 'dark') {
+	if (mode === 'dark') {
 		// Se il tratto ha un colore "chiaro" (della palette light), mappalo al corrispondente dark
 		const idx = LIGHT_COLORS.indexOf(c);
 		if (idx >= 0) return DARK_COLORS[idx]!;
-	} else if (bgMode === 'light') {
+	} else {
 		// Viceversa: colori dark → light
 		const idx = DARK_COLORS.indexOf(c);
 		if (idx >= 0) return LIGHT_COLORS[idx]!;
 	}
-	// Per custom o colori non in palette, lascia invariato
+	// Colori non in palette: lascia invariato
 	return color;
 }
 
@@ -88,12 +75,10 @@ export const DEFAULT_SETTINGS: HandwritingSettings = {
 	svgFolder: '_handwriting',
 	canvasWidth: 800,
 	canvasHeight: 300,
-	bgMode: 'light',
-	bgCustomColor: '#ffffff',
+	bgMode: 'auto',               // default: segue automaticamente il tema di Obsidian
 	ocrLanguages: ['it', 'en'],   // italiano e inglese di default
 	geminiApiKey: '',
 	debugMode: false,
-	hwmHandwritingMode: false,    // default: mostra SVG piena
 };
 
 // Nome del branch corrente — aggiornare manualmente ad ogni cambio di branch
@@ -162,33 +147,18 @@ export class HandwritingSettingTab extends PluginSettingTab {
 		// --- Sfondo canvas ---
 		new Setting(containerEl)
 			.setName('Sfondo canvas')
-			.setDesc('Colore di sfondo del riquadro di disegno')
+			.setDesc('Colore di sfondo del riquadro di disegno. "Automatico" segue il tema di Obsidian.')
 			.addDropdown(drop => drop
+				.addOption('auto', 'Automatico (segue tema Obsidian)')
 				.addOption('light', 'Chiaro (bianco)')
 				.addOption('dark', 'Scuro (grigio scuro)')
-				.addOption('custom', 'Personalizzato')
 				.setValue(this.plugin.settings.bgMode)
 				.onChange(async (value) => {
 					this.plugin.settings.bgMode = value as BgMode;
 					await this.plugin.saveSettings();
 					// Notifica pannelli (dark class) e SVG attivi (remap colori)
 					this.plugin.notifyBgModeChange();
-					// Aggiorna la UI per mostrare/nascondere il color picker
-					this.display();
 				}));
-
-		// --- Colore personalizzato (visibile solo se bgMode === 'custom') ---
-		if (this.plugin.settings.bgMode === 'custom') {
-			new Setting(containerEl)
-				.setName('Colore sfondo personalizzato')
-				.setDesc('Scegli il colore hex dello sfondo')
-				.addColorPicker(picker => picker
-					.setValue(this.plugin.settings.bgCustomColor)
-					.onChange(async (value) => {
-						this.plugin.settings.bgCustomColor = value;
-						await this.plugin.saveSettings();
-					}));
-		}
 
 		// --- Chiave API Gemini ---
 		new Setting(containerEl)
@@ -225,25 +195,6 @@ export class HandwritingSettingTab extends PluginSettingTab {
 						.filter(l => l.length > 0);
 					this.plugin.settings.ocrLanguages = langs.length > 0 ? langs : ['it', 'en'];
 					await this.plugin.saveSettings();
-				}));
-
-		// --- Modalità handwriting Android ---
-		// Se attiva, i riquadri mostrano solo una piccola anteprima (badge) invece
-		// dell'SVG a piena altezza, per non bloccare l'handwriting nei campi testo.
-		// Il disegno si apre sempre in una nuova scheda (Android) o modal (Windows).
-		new Setting(containerEl)
-			.setName('Modalità handwriting Android')
-			.setDesc(
-				'Attiva per mantenere lo stylus handwriting nel testo del documento. ' +
-				'I riquadri mostrano solo una piccola anteprima; per disegnare usa il bottone matita.'
-			)
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.hwmHandwritingMode)
-				.onChange(async (value) => {
-					this.plugin.settings.hwmHandwritingMode = value;
-					await this.plugin.saveSettings();
-					// Applica/rimuove la classe CSS sul body immediatamente
-					document.body.classList.toggle('hwm-handwriting-mode', value);
 				}));
 
 		// --- Modalità debug ---

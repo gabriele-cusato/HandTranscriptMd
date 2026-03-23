@@ -44,8 +44,9 @@ interface EmbedData {
    ============================================= */
 
 export function registerEmbed(plugin: HandwritingPlugin) {
-	// Applica/rimuove la classe CSS badge mode all'avvio in base alle impostazioni
-	document.body.classList.toggle('hwm-handwriting-mode', plugin.settings.hwmHandwritingMode);
+	// Su mobile: badge mode sempre attiva (lo stylus handwriting Android
+	// non è compatibile con SVG a piena altezza nel documento).
+	document.body.classList.toggle('hwm-handwriting-mode', Platform.isMobile);
 
 	// --- Listener globale: remap automatico colori SVG al cambio bgMode ---
 	// Quando l'utente cambia sfondo canvas nelle impostazioni, tutti gli SVG del plugin
@@ -130,10 +131,9 @@ function setupMutationObserver(plugin: HandwritingPlugin) {
 		// Marca subito come decorato per evitare doppia elaborazione
 		span.dataset.hwmDecorated = '1';
 
-		// Modalità handwriting: riduce l'SVG a badge per non bloccare lo stylus nel testo.
-		// La classe viene aggiunta/rimossa in base all'impostazione hwmHandwritingMode.
+		// Su mobile: badge mode sempre attiva per non bloccare lo stylus handwriting nel testo.
 		// La regola CSS .hwm-handwriting-mode su document.body gestisce la visualizzazione.
-		span.classList.toggle('hwm-badge-mode', plugin.settings.hwmHandwritingMode);
+		span.classList.toggle('hwm-badge-mode', Platform.isMobile);
 
 		// TEST A: pointer-events: none sullo span.
 		// Ipotesi: Chrome usa lo stesso hit-test dei pointer events per la
@@ -604,7 +604,11 @@ function createPortalPanel(
 	sourcePath: string,
 	plugin: HandwritingPlugin
 ) {
-	const isDark = plugin.settings.bgMode === 'dark';
+	// Risolve il tema effettivo tenendo conto di 'auto'
+	const resolveIsDark = (bgMode: string) =>
+		bgMode === 'auto' ? document.body.classList.contains('theme-dark') : bgMode === 'dark';
+
+	const isDark = resolveIsDark(plugin.settings.bgMode);
 	const collapsedHeight = plugin.settings.canvasHeight;
 	let isExpanded = true;
 	// Flag per nascondere il pannello quando il modal (Desktop) è aperto
@@ -615,7 +619,7 @@ function createPortalPanel(
 
 	const panel = document.createElement('div');
 	panel.className = 'hwm_portal-panel';
-	if (isDark) panel.classList.add('hwm_toolbar--dark');
+	if (isDark) panel.classList.add('hwm_portal-panel--dark');
 	container.appendChild(panel);
 	// Rimuove il pannello dal DOM quando il plugin viene disabilitato
 	plugin.register(() => panel.remove());
@@ -725,7 +729,7 @@ function createPortalPanel(
 			plugin.bgModeListeners.delete(onBgMode);
 			return;
 		}
-		panel.classList.toggle('hwm_toolbar--dark', bgMode === 'dark');
+		panel.classList.toggle('hwm_portal-panel--dark', resolveIsDark(bgMode));
 	};
 	plugin.bgModeListeners.add(onBgMode);
 	plugin.register(() => plugin.bgModeListeners.delete(onBgMode));

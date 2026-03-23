@@ -15,6 +15,12 @@ import { parseMarkdown } from './md-parser';
 
 export const VIEW_TYPE_HANDWRITING = 'handwriting-editor';
 
+// Risolve se il tema è scuro tenendo conto di 'auto' (legge la classe Obsidian sul body)
+function resolveIsDark(bgMode: string): boolean {
+	if (bgMode === 'auto') return document.body.classList.contains('theme-dark');
+	return bgMode === 'dark';
+}
+
 // Icone SVG inline (stile Lucide 24×24)
 const ICONS: Record<string, string> = {
 	'pencil':      `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>`,
@@ -87,7 +93,7 @@ export class DrawingEditorView extends ItemView {
 		el.classList.add('hwm_editor-view');
 
 		const isMobile = Platform.isMobile;
-		const isDark = this.plugin.settings.bgMode === 'dark';
+		const isDark = resolveIsDark(this.plugin.settings.bgMode);
 		const bgColor = getEffectiveBgColor(this.plugin.settings);
 		const lineColor = getEffectiveLineColor(this.plugin.settings);
 		el.style.backgroundColor = bgColor;
@@ -161,9 +167,10 @@ export class DrawingEditorView extends ItemView {
 		const lightColors = ['#000000', '#1e40af', '#dc2626', '#16a34a'];
 		const darkColors  = ['#ffffff', '#60a5fa', '#f87171', '#4ade80'];
 		this.bgModeListener = (bgMode: string) => {
-			const dark = bgMode === 'dark';
+			const dark = resolveIsDark(bgMode);
 			topbar.classList.toggle('hwm_editor-topbar--dark', dark);
 			toolbar.classList.toggle('hwm_toolbar--dark', dark);
+			handle.classList.toggle('hwm_resize-handle--dark', dark);
 			el.style.backgroundColor = getEffectiveBgColor(this.plugin.settings);
 			// Aggiorna i pallini colore palette (backgroundColor inline con !important)
 			const newColors = dark ? darkColors : lightColors;
@@ -228,11 +235,7 @@ export class DrawingEditorView extends ItemView {
 		// Resize handle (visibile ma non interattivo)
 		const handle = scrollWrap.createDiv({ cls: 'hwm_resize-handle hwm_resize-handle--disabled' });
 		handle.createEl('span', { text: '⋯' });
-		if (isDark) {
-			handle.style.background = '#2a2a2a';
-			handle.style.borderTopColor = '#444';
-			handle.style.color = '#888';
-		}
+		handle.classList.toggle('hwm_resize-handle--dark', isDark);
 
 		// Auto-scroll quando il canvas si espande, ma solo se non si sta disegnando.
 		// Durante il disegno, lo scroll sposterebbe il canvas nel viewport e le
@@ -500,7 +503,7 @@ export class DrawingModal extends Modal {
 	private async buildEditor() {
 		const el = this.contentEl;
 		const isMobile = Platform.isMobile;
-		const isDark = this.plugin.settings.bgMode === 'dark';
+		const isDark = resolveIsDark(this.plugin.settings.bgMode);
 		const bgColor = getEffectiveBgColor(this.plugin.settings);
 		const lineColor = getEffectiveLineColor(this.plugin.settings);
 		el.style.backgroundColor = bgColor;
@@ -562,9 +565,10 @@ export class DrawingModal extends Modal {
 		const lightColors = ['#000000', '#1e40af', '#dc2626', '#16a34a'];
 		const darkColors  = ['#ffffff', '#60a5fa', '#f87171', '#4ade80'];
 		this.bgModeListener = (bgMode: string) => {
-			const dark = bgMode === 'dark';
+			const dark = resolveIsDark(bgMode);
 			topbar.classList.toggle('hwm_editor-topbar--dark', dark);
 			toolbar.classList.toggle('hwm_toolbar--dark', dark);
+			handle.classList.toggle('hwm_resize-handle--dark', dark);
 			el.style.backgroundColor = getEffectiveBgColor(this.plugin.settings);
 			// Aggiorna i pallini colore palette
 			const newColors = dark ? darkColors : lightColors;
@@ -617,7 +621,7 @@ export class DrawingModal extends Modal {
 
 		const handle = scrollWrap.createDiv({ cls: 'hwm_resize-handle hwm_resize-handle--disabled' });
 		handle.createEl('span', { text: '⋯' });
-		if (isDark) { handle.style.background = '#2a2a2a'; handle.style.borderTopColor = '#444'; handle.style.color = '#888'; }
+		handle.classList.toggle('hwm_resize-handle--dark', isDark);
 
 		// Auto-scroll solo se non si sta disegnando (stesso motivo del DrawingEditorView)
 		this.canvas.onResize(() => {
