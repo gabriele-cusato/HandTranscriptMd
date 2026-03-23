@@ -171,6 +171,8 @@ export class HandwritingSettingTab extends PluginSettingTab {
 				.onChange(async (value) => {
 					this.plugin.settings.bgMode = value as BgMode;
 					await this.plugin.saveSettings();
+					// Notifica pannelli (dark class) e SVG attivi (remap colori)
+					this.plugin.notifyBgModeChange();
 					// Aggiorna la UI per mostrare/nascondere il color picker
 					this.display();
 				}));

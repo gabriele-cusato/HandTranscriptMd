@@ -28,7 +28,7 @@ const ICONS: Record<string, string> = {
 import type HandwritingPlugin from './main';
 import { Stroke } from './drawing-canvas';
 import { strokesToSvg, parseSvgStrokes, generateId } from './svg-utils';
-import { getEffectiveBgColor, getEffectiveLineColor, remapStrokeColor } from './settings';
+import { getEffectiveBgColor, getEffectiveLineColor, remapStrokeColor, BgMode } from './settings';
 import { getRecognizer } from './recognizer';
 import { parseMarkdown } from './md-parser';
 import { VIEW_TYPE_HANDWRITING, DrawingEditorView, DrawingModal } from './editor-view';
@@ -46,6 +46,43 @@ interface EmbedData {
 export function registerEmbed(plugin: HandwritingPlugin) {
 	// Applica/rimuove la classe CSS badge mode all'avvio in base alle impostazioni
 	document.body.classList.toggle('hwm-handwriting-mode', plugin.settings.hwmHandwritingMode);
+
+	// --- Listener globale: remap automatico colori SVG al cambio bgMode ---
+	// Quando l'utente cambia sfondo canvas nelle impostazioni, tutti gli SVG del plugin
+	// attualmente tracciati in embedPaths vengono letti, rimappati e risalvati nel vault.
+	// Identifica gli SVG del plugin tramite <desc class="hwm-strokes"> — gli SVG
+	// dell'utente non hanno questo tag e vengono ignorati.
+	const onBgModeRemap = async (bgMode: string) => {
+		for (const [embedId, svgPath] of plugin.embedPaths) {
+			const file = plugin.app.vault.getAbstractFileByPath(svgPath);
+			if (!(file instanceof TFile)) continue;
+			const content = await plugin.app.vault.read(file);
+			// Salta SVG non creati dal plugin (assenza del tag hwm-strokes)
+			if (!content.includes('hwm-strokes')) continue;
+			const strokes = parseSvgStrokes(content);
+			// Rimappa i colori dei tratti al nuovo tema
+			const remapped = strokes.map(s => ({
+				...s, color: remapStrokeColor(s.color, bgMode as BgMode)
+			}));
+			// Legge dimensioni reali dal viewBox per preservare l'altezza raggiunta con auto-expand.
+			// Usare plugin.settings.canvasHeight causerebbe il "collasso" degli SVG cresciuti.
+			const dimMatch = content.match(/viewBox="0 0 (\d+) (\d+)"/);
+			const svgWidth  = dimMatch ? parseInt(dimMatch[1]!) : plugin.settings.canvasWidth;
+			const svgHeight = dimMatch ? parseInt(dimMatch[2]!) : plugin.settings.canvasHeight;
+			const newSvg = strokesToSvg(
+				remapped,
+				svgWidth,
+				svgHeight,
+				getEffectiveBgColor(plugin.settings),
+				getEffectiveLineColor(plugin.settings)
+			);
+			await plugin.app.vault.modify(file, newSvg);
+			// Aggiorna l'<img> nella preview inline con cache-bust
+			plugin.refreshPreview(embedId, newSvg);
+		}
+	};
+	plugin.bgModeListeners.add(onBgModeRemap);
+	plugin.register(() => plugin.bgModeListeners.delete(onBgModeRemap));
 
 	// --- NUOVO: MutationObserver su document.body ---
 	// Intercetta gli span .internal-embed con src _handwriting/ non appena
@@ -570,26 +607,37 @@ function createPortalPanel(
 	const isDark = plugin.settings.bgMode === 'dark';
 	const collapsedHeight = plugin.settings.canvasHeight;
 	let isExpanded = true;
-	// Flag per nascondere il bottone matita quando il modal (Desktop) è aperto
+	// Flag per nascondere il pannello quando il modal (Desktop) è aperto
 	let modalOpen = false;
 
-	// Pannello floating con sfondo e ombra, posizionato via position: fixed
+	// Lo span diventa position: relative per ancorarvi il pannello (position: absolute).
+	container.style.position = 'relative';
+
 	const panel = document.createElement('div');
 	panel.className = 'hwm_portal-panel';
 	if (isDark) panel.classList.add('hwm_toolbar--dark');
-	document.body.appendChild(panel);
+	container.appendChild(panel);
+	// Rimuove il pannello dal DOM quando il plugin viene disabilitato
+	plugin.register(() => panel.remove());
+
+	// Traccia embedId → svgPath per il remap automatico al cambio bgMode
+	plugin.embedPaths.set(embedId, svgPath);
 
 	// --- Bottone matita ---
 	// Desktop: apre DrawingModal (overlay fullscreen, senza aprire nuova tab)
-	// Mobile: apre DrawingEditorView in una nuova tab (fuori da cm-content → nessun conflitto handwriting)
+	// Mobile: apre DrawingEditorView in una nuova tab
 	const pencilBtn = createPanelBtn(panel, 'pencil', 'Apri editor disegno');
 	pencilBtn.addEventListener('click', async () => {
 		if (Platform.isDesktop) {
-			// Modal overlay — rimane nella stessa finestra
 			if (modalOpen) return;
 			modalOpen = true;
+			// Nasconde il pannello mentre il modal è aperto (altrimenti galleggerebbe sul canvas)
+			panel.style.display = 'none';
 			const modal = new DrawingModal(plugin.app, plugin, embedId, svgPath, sourcePath);
-			modal.onClosed = () => { modalOpen = false; };
+			modal.onClosed = () => {
+				modalOpen = false;
+				if (container.isConnected) panel.style.display = '';
+			};
 			modal.open();
 		} else {
 			// Mobile: nuova tab (DrawingEditorView è fuori da cm-content)
@@ -626,18 +674,22 @@ function createPortalPanel(
 	});
 
 	// --- Bottone comprimi/espandi ---
+	// Usa height + overflow:hidden sul container (non max-height sull'<img>):
+	// così l'immagine viene ritagliata verticalmente senza che la larghezza cambi.
+	// Il pannello (position:absolute, top:6px) resta dentro l'area visibile
+	// anche da compresso (collapsedHeight è sempre >> 6px + altezza pannello).
 	const collapseBtn = createPanelBtn(panel, 'chevron-up', 'Comprimi');
 	collapseBtn.classList.add('hwm_collapse-btn');
 	collapseBtn.addEventListener('click', () => {
 		isExpanded = !isExpanded;
 		if (isExpanded) {
-			container.style.maxHeight = '';
-			container.style.overflow  = '';
+			container.style.height   = '';
+			container.style.overflow = '';
 			collapseBtn.classList.remove('hwm_rotated');
 			collapseBtn.title = 'Comprimi';
 		} else {
-			container.style.maxHeight = collapsedHeight + 'px';
-			container.style.overflow  = 'hidden';
+			container.style.height   = collapsedHeight + 'px';
+			container.style.overflow = 'hidden';
 			collapseBtn.classList.add('hwm_rotated');
 			collapseBtn.title = 'Espandi';
 		}
@@ -651,53 +703,32 @@ function createPortalPanel(
 		await removeWikiEmbed(svgPath, sourcePath, plugin);
 	});
 
-	// Scroll fix: nasconde il pannello immediatamente durante lo scroll
-	// per evitare che rimanga in posizione sbagliata tra un frame RAF e l'altro.
-	// Il RAF lo riposiziona e lo rende visibile di nuovo appena la pagina si ferma.
-	let scrollTimer: ReturnType<typeof setTimeout> | null = null;
-	const onScroll = () => {
-		panel.style.visibility = 'hidden';
-		if (scrollTimer) clearTimeout(scrollTimer);
-		scrollTimer = setTimeout(() => { panel.style.visibility = ''; }, 150);
-	};
-	// Ascolta sia il .cm-scroller (live preview) che .markdown-reading-view (reading view)
-	const scrollEl = container.closest('.cm-scroller') as HTMLElement | null
-		?? container.closest('.markdown-reading-view') as HTMLElement | null;
-	if (scrollEl) {
-		scrollEl.addEventListener('scroll', onScroll, { passive: true });
-		plugin.register(() => scrollEl.removeEventListener('scroll', onScroll));
-	}
-
-	// RAF loop: aggiorna posizione e visibilità ogni frame.
-	// Si auto-ferma quando il container lascia il DOM.
-	const update = () => {
+	// Layout-change: su Mobile nasconde il pannello quando la tab editor è aperta
+	const onLayoutChange = () => {
 		if (!container.isConnected) {
-			panel.remove();
+			plugin.app.workspace.off('layout-change', onLayoutChange);
+			plugin.embedPaths.delete(embedId);
 			return;
 		}
-		const rect       = container.getBoundingClientRect();
-		const inViewport = rect.width > 0 && rect.top < window.innerHeight && rect.bottom > 0;
-		// Controlla se la tab editor (Mobile) è aperta per questo embed
-		const tabOpen = plugin.app.workspace.getLeavesOfType(VIEW_TYPE_HANDWRITING)
-			.some(l => (l.view as DrawingEditorView).getEmbedId() === embedId);
-
-		// Nasconde l'INTERO pannello se: editor aperto (modal su Desktop o tab su Mobile)
-		// oppure il container non è nel viewport.
-		// Quando il modal è aperto a schermo intero, il pannello rimarrebbe sopra di esso:
-		// nasconderlo evita che i bottoni siano cliccabili sopra il canvas di disegno.
-		if (!inViewport || modalOpen || tabOpen) {
-			panel.style.display = 'none';
-		} else {
-			panel.style.display = 'flex';
-			// Posizionato in alto a destra del container via position: fixed.
-			// "right" con position:fixed = distanza dal bordo destro del viewport.
-			panel.style.top   = (rect.top + 6) + 'px';
-			panel.style.right = (window.innerWidth - rect.right + 6) + 'px';
-			panel.style.left  = 'auto';
+		if (Platform.isMobile) {
+			const tabOpen = plugin.app.workspace.getLeavesOfType(VIEW_TYPE_HANDWRITING)
+				.some(l => (l.view as DrawingEditorView).getEmbedId() === embedId);
+			panel.style.display = tabOpen ? 'none' : '';
 		}
-		requestAnimationFrame(update);
 	};
-	requestAnimationFrame(update);
+	plugin.app.workspace.on('layout-change', onLayoutChange);
+	plugin.register(() => plugin.app.workspace.off('layout-change', onLayoutChange));
+
+	// BgMode listener: aggiorna la classe dark sul pannello al cambio tema
+	const onBgMode = (bgMode: string) => {
+		if (!container.isConnected) {
+			plugin.bgModeListeners.delete(onBgMode);
+			return;
+		}
+		panel.classList.toggle('hwm_toolbar--dark', bgMode === 'dark');
+	};
+	plugin.bgModeListeners.add(onBgMode);
+	plugin.register(() => plugin.bgModeListeners.delete(onBgMode));
 }
 
 // Crea un bottone div nel pannello portale

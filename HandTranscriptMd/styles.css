@@ -22,7 +22,7 @@
    handwriting mostrano un box compatto con icona invece dell'SVG a piena
    altezza. Questo riduce l'area CE=false che interferisce con la proximity
    detection dello stylus handwriting di Android.
-   L'SVG viene nascosto; il pannello portale (position:fixed) rimane visibile
+   L'SVG viene nascosto; il pannello portale (position:absolute) rimane visibile
    sopra il box per permettere apertura editor, conversione ed eliminazione. */
 .hwm-handwriting-mode .hwm-badge-mode {
 	/* Larghezza piena: lo span .internal-embed di default può restare stretto
@@ -406,10 +406,15 @@
    cm-content → non rompe handwriting Android
    ======================================== */
 
-/* Pannello floating con tutti i bottoni (nuovo formato ![[svg]]) */
+/* Pannello con tutti i bottoni (nuovo formato ![[svg]]).
+   Vive dentro lo span .internal-embed (position: relative impostato via JS).
+   Con position: absolute segue il DOM: scompare quando lo span non è visibile
+   (scroll, impostazioni aperte, cambio tab) senza nessuna logica JS aggiuntiva. */
 .hwm_portal-panel {
-	position: fixed; /* coordinate viewport, aggiornate via RAF */
-	z-index: 100;
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	z-index: 10; /* sufficiente per stare sopra l'img interna */
 	display: flex;
 	align-items: center;
 	gap: 0; /* spacing via margin-right sui .hwm_btn */
@@ -417,6 +422,9 @@
 	border-radius: 6px;
 	background: rgba(240, 240, 240, 0.95);
 	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+	/* Lo span padre ha pointer-events:none (per handwriting Android):
+	   ripristina i click sui bottoni del pannello */
+	pointer-events: auto;
 }
 
 /* Bottone cerchio singolo (formato legacy) */
@@ -489,14 +497,43 @@
 	align-items: center;
 	justify-content: space-between;
 	padding: 6px 8px;
-	background: rgba(240, 240, 240, 0.95);
-	border-bottom: 1px solid #ddd;
+	background: rgba(240, 240, 240, 0.95) !important; /* !important: impedisce a Obsidian dark mode di sovrascrivere il topbar */
+	border-bottom: 1px solid #ddd !important;
 	flex-shrink: 0;
 	gap: 8px;
 }
 .hwm_editor-topbar--dark {
-	background: rgba(40, 40, 40, 0.97);
-	border-bottom-color: #444;
+	background: rgba(40, 40, 40, 0.97) !important;
+	border-bottom-color: #444 !important;
+}
+
+/* Forza background e colore icone dentro il topbar dell'editor.
+   Obsidian dark theme ha regole tipo ".modal-content button { background: var(...) }"
+   con specificità 0,1,1 > 0,1,0 di .hwm_btn: senza !important qui sotto, i bottoni
+   rimangono scuri anche in light mode. Le due regole .hwm_btn e --dark .hwm_btn hanno
+   stessa specificità (0,2,0) ma --dark appare dopo → vince in dark mode. */
+.hwm_editor-topbar .hwm_btn {
+	background: transparent !important;
+	color: #333 !important;
+}
+.hwm_editor-topbar--dark .hwm_btn {
+	background: transparent !important;
+	color: #bbb !important;
+}
+/* Hover light: sfondo grigio chiaro */
+.hwm_editor-topbar .hwm_btn:hover:not(.hwm_active) {
+	background: #e0e0e0 !important;
+	color: #333 !important;
+}
+/* Hover dark: sfondo bianco semi-trasparente */
+.hwm_editor-topbar--dark .hwm_btn:hover:not(.hwm_active) {
+	background: rgba(255, 255, 255, 0.12) !important;
+	color: #fff !important;
+}
+/* Bottone attivo (tool selezionato): sempre sfondo accent e icona bianca */
+.hwm_editor-topbar .hwm_btn.hwm_active {
+	background: var(--interactive-accent) !important;
+	color: #ffffff !important;
 }
 
 /* Bottone ← (indietro, a sinistra) */

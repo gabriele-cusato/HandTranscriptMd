@@ -37,6 +37,8 @@ export class DrawingEditorView extends ItemView {
 	private svgPath = '';
 	private sourcePath = '';
 	private saveTimer: ReturnType<typeof setTimeout> | null = null;
+	// Listener per aggiornare la classe dark al cambio bgMode
+	private bgModeListener: ((bgMode: string) => void) | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: HandwritingPlugin) {
 		super(leaf);
@@ -70,6 +72,11 @@ export class DrawingEditorView extends ItemView {
 			this.canvas = null;
 		}
 		if (this.saveTimer) clearTimeout(this.saveTimer);
+		// Deregistra il listener bgMode
+		if (this.bgModeListener) {
+			this.plugin.bgModeListeners.delete(this.bgModeListener);
+			this.bgModeListener = null;
+		}
 	}
 
 	/* ---------- Costruisce la UI dell'editor ---------- */
@@ -148,6 +155,31 @@ export class DrawingEditorView extends ItemView {
 			});
 		};
 		if (isMobile) updateColorSizes(true);
+
+		// Listener bgMode: aggiorna toolbar, pallini colore e sfondo canvas al cambio tema.
+		// Deve stare DOPO la dichiarazione di colorBtns per poterli aggiornare nel closure.
+		const lightColors = ['#000000', '#1e40af', '#dc2626', '#16a34a'];
+		const darkColors  = ['#ffffff', '#60a5fa', '#f87171', '#4ade80'];
+		this.bgModeListener = (bgMode: string) => {
+			const dark = bgMode === 'dark';
+			topbar.classList.toggle('hwm_editor-topbar--dark', dark);
+			toolbar.classList.toggle('hwm_toolbar--dark', dark);
+			el.style.backgroundColor = getEffectiveBgColor(this.plugin.settings);
+			// Aggiorna i pallini colore palette (backgroundColor inline con !important)
+			const newColors = dark ? darkColors : lightColors;
+			colorBtns.forEach((btn, i) => {
+				btn.style.backgroundColor = newColors[i] ?? '';
+				btn.setAttribute('title', newColors[i] ?? '');
+			});
+			// Aggiorna sfondo e righe nel canvas
+			if (this.canvas) {
+				this.canvas.setBackground(
+					getEffectiveBgColor(this.plugin.settings),
+					getEffectiveLineColor(this.plugin.settings)
+				);
+			}
+		};
+		this.plugin.bgModeListeners.add(this.bgModeListener);
 
 		// Undo / Redo / Clear
 		const undoBtn = this.mkBtn(toolbar, 'rotate-ccw', 'Annulla');
@@ -430,6 +462,8 @@ export class DrawingModal extends Modal {
 	private sourcePath: string;
 	private canvas: DrawingCanvas | null = null;
 	private saveTimer: ReturnType<typeof setTimeout> | null = null;
+	// Listener per aggiornare la classe dark al cambio bgMode
+	private bgModeListener: ((bgMode: string) => void) | null = null;
 	// Callback invocato alla chiusura del modal (usato per nascondere/mostrare il bottone matita)
 	onClosed?: () => void;
 
@@ -454,6 +488,11 @@ export class DrawingModal extends Modal {
 			this.canvas = null;
 		}
 		if (this.saveTimer) clearTimeout(this.saveTimer);
+		// Deregistra il listener bgMode
+		if (this.bgModeListener) {
+			this.plugin.bgModeListeners.delete(this.bgModeListener);
+			this.bgModeListener = null;
+		}
 		// Notifica il chiamante che il modal è stato chiuso
 		this.onClosed?.();
 	}
@@ -474,6 +513,7 @@ export class DrawingModal extends Modal {
 
 		const toolbar = topbar.createDiv({ cls: 'hwm_toolbar hwm_editor-toolbar' });
 		if (isDark) toolbar.classList.add('hwm_toolbar--dark');
+
 
 		if (isMobile) {
 			toolbar.classList.add('hwm_toolbar--compact');
@@ -517,6 +557,30 @@ export class DrawingModal extends Modal {
 			});
 		};
 		if (isMobile) updateColorSizes(true);
+
+		// Listener bgMode: aggiorna toolbar, pallini colore e sfondo canvas al cambio tema.
+		const lightColors = ['#000000', '#1e40af', '#dc2626', '#16a34a'];
+		const darkColors  = ['#ffffff', '#60a5fa', '#f87171', '#4ade80'];
+		this.bgModeListener = (bgMode: string) => {
+			const dark = bgMode === 'dark';
+			topbar.classList.toggle('hwm_editor-topbar--dark', dark);
+			toolbar.classList.toggle('hwm_toolbar--dark', dark);
+			el.style.backgroundColor = getEffectiveBgColor(this.plugin.settings);
+			// Aggiorna i pallini colore palette
+			const newColors = dark ? darkColors : lightColors;
+			colorBtns.forEach((btn, i) => {
+				btn.style.backgroundColor = newColors[i] ?? '';
+				btn.setAttribute('title', newColors[i] ?? '');
+			});
+			// Aggiorna sfondo e righe nel canvas
+			if (this.canvas) {
+				this.canvas.setBackground(
+					getEffectiveBgColor(this.plugin.settings),
+					getEffectiveLineColor(this.plugin.settings)
+				);
+			}
+		};
+		this.plugin.bgModeListeners.add(this.bgModeListener);
 
 		const undoBtn = this.mkBtn(toolbar, 'rotate-ccw', 'Annulla');
 		undoBtn.classList.add('hwm_undo-btn');

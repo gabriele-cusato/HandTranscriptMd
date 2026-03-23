@@ -18,9 +18,21 @@ export default class HandwritingPlugin extends Plugin {
 	// Mappa di callback per aggiornare le preview inline quando l'editor tab salva
 	public previewCallbacks = new Map<string, (svgContent: string) => void>();
 
+	// Mappa embedId → svgPath: permette di trovare i file SVG da rimappare al cambio bgMode
+	public embedPaths = new Map<string, string>();
+
+	// Callback notificate quando l'utente cambia bgMode nelle impostazioni
+	public bgModeListeners = new Set<(bgMode: string) => void>();
+
 	// Invocato dall'editor tab dopo ogni salvataggio per aggiornare la preview inline
 	refreshPreview(id: string, svgContent: string) {
 		this.previewCallbacks.get(id)?.(svgContent);
+	}
+
+	// Chiamato da settings quando l'utente cambia bgMode:
+	// notifica pannelli (aggiornamento classe dark) e SVG attivi (remap colori)
+	notifyBgModeChange() {
+		this.bgModeListeners.forEach(cb => cb(this.settings.bgMode));
 	}
 
 	async onload() {

@@ -40,7 +40,7 @@ Un plugin Obsidian che inserisce un **riquadro canvas inline** in un file `.md` 
 
 ---
 
-## Stato attuale — Fase 5 (fix overlay + centramento modal + badge mode + auto-scroll) — TESTATO
+## Stato attuale — Fase 6 (pannello portale inline + bgMode live update + fix CSS tema) — TESTATO
 
 ### File del plugin (`HandTranscriptMd/src/`)
 
@@ -50,7 +50,7 @@ Un plugin Obsidian che inserisce un **riquadro canvas inline** in un file `.md` 
 | `settings.ts` | Impostazioni: cartella SVG, dimensioni canvas, sfondo, lingue OCR, chiave API Gemini, toggle `hwmHandwritingMode`; mostra versione (`plugin.manifest.version`) e branch (`PLUGIN_BRANCH` costante hardcoded) nell'header della pagina impostazioni |
 | `drawing-canvas.ts` | Motore disegno Canvas API: Bézier quadratiche, penna, gomma parziale, undo/redo history-based, auto-expand, righe foglio, `allowFingerScroll()` |
 | `svg-utils.ts` | Conversione tratti ↔ SVG (dati riedit in `<desc>` JSON), righe e sfondo inclusi nell'SVG |
-| `embed.ts` | Code block processor → preview SVG inline + pannello portale in document.body; click matita → Modal (Windows) o nuova tab (Android); scroll fix; badge mode |
+| `embed.ts` | Code block processor → preview SVG inline + pannello portale (figlio dello span, position:absolute); click matita → Modal (Windows) o nuova tab (Android); badge mode; `onBgModeRemap` per aggiornare SVG al cambio tema |
 | `editor-view.ts` | `DrawingEditorView` (tab dedicata, Android) + `DrawingModal` (overlay fullscreen, Windows), toolbar completa, auto-save |
 | `recognizer.ts` | `IRecognizer` interface + `GeminiRecognizer`: invia PNG base64 a Gemini API, restituisce testo |
 | `md-parser.ts` | `parseMarkdown()`: post-processa testo OCR riga per riga applicando sintassi markdown |
@@ -66,8 +66,13 @@ Un plugin Obsidian che inserisce un **riquadro canvas inline** in un file `.md` 
 - **MutationObserver su `document.body`** intercetta gli span con `src*="_handwriting/"` non appena appaiono nel DOM (funziona sia in reading view che in live preview dove il post-processor non viene chiamato)
 - `tryDecorate()` con flag `data-hwm-decorated="1"` per evitare doppia elaborazione; ritenta dopo 150ms se la classe `image-embed` non è ancora presente (caricamento asincrono)
 - **Classe badge mode**: `span.classList.toggle('hwm-badge-mode', hwmHandwritingMode)` — unica modifica allo span quando lo switch è attivo
-- **Pannello portale** (`hwm_portal-panel`) in `document.body` con 4 bottoni: ✏️ (apre Modal su Windows / tab su Android), 📄 (converti OCR), ↕️ (comprimi/espandi), ✕ (elimina). Posizionato via RAF + `getBoundingClientRect()` + `position: fixed`
-- **Scroll fix**: listener `scroll` su `.cm-scroller` / `.markdown-reading-view` che nasconde il pannello immediatamente durante lo scroll (visibilità ripristinata dopo 150ms)
+- **Pannello portale** (`hwm_portal-panel`) con 4 bottoni: ✏️ (apre Modal su Windows / tab su Android), 📄 (converti OCR), ↕️ (comprimi/espandi), ✕ (elimina).
+  - **Posizione**: `container.appendChild(panel)` — il pannello è un figlio diretto dello span; `position: absolute; top: 6px; right: 6px` ancorato allo span (che ha `position: relative`). Non più in `document.body`.
+  - **Nessun RAF loop**: eliminato il loop `requestAnimationFrame` e il listener `scroll`. Il pannello segue lo span naturalmente nel DOM.
+  - **Cleanup**: `plugin.register(() => panel.remove())` — il pannello viene rimosso quando il plugin viene disabilitato.
+  - **Click dei bottoni**: lo span ha `pointer-events: none` (per handwriting Android); il pannello ha `pointer-events: auto` in CSS per ripristinare i click.
+  - **Nascondere con modal aperto**: Desktop → `panel.style.display = 'none'` nel click handler, ripristinato nel callback `modal.onClosed`; Mobile → `workspace.on('layout-change', ...)` per rilevare apertura/chiusura tab.
+- **Comprimi/Espandi**: usa `container.style.height + overflow: hidden` sullo span contenitore — modifica solo l'altezza visibile senza toccare la larghezza dell'immagine.
 - **Refresh immagine**: `previewCallbacks.set(embedId, ...)` aggiorna `img.src` con cache-bust `?t=timestamp` dopo ogni salvataggio dalla tab editor (Obsidian non aggiorna automaticamente `![[svg]]` in live preview quando il file cambia)
 - **NO data-URI**: il src dell'img resta sempre l'URL vault (`http://localhost/_capacitor_file_/...`) — un data-URI verrebbe interpretato da Android come drawing surface
 
@@ -88,8 +93,9 @@ Un plugin Obsidian che inserisce un **riquadro canvas inline** in un file `.md` 
 `DrawingModal extends Modal` — usato su **Windows**:
 - Overlay fullscreen (`hwm_modal`: `95vw × 90vh`) che appare sopra il documento
 - Stessa toolbar e stesso canvas di `DrawingEditorView`
-- `onClosed?: () => void` — callback invocato alla chiusura per aggiornare il flag `modalOpen` nel RAF loop del pannello portale
+- `onClosed?: () => void` — callback invocato alla chiusura per ripristinare `panel.style.display` nel pannello portale
 - `replaceCodeBlock` / `removeCodeBlock` gestiscono sia formato wiki `![[svg]]` che legacy (prova prima wiki, poi code block come fallback)
+- `private bgModeListener` registrato in `buildEditor()` (dopo `colorBtns`) e rimosso in `onClose()` — aggiorna topbar, toolbar, pallini colore e canvas al cambio bgMode in tempo reale (utile se le impostazioni fossero accessibili con modal aperto)
 
 **Comportamento bottone matita (pannello portale):**
 - `Platform.isDesktop` → `new DrawingModal(...).open()` — si apre nella stessa finestra
@@ -124,7 +130,7 @@ Un plugin Obsidian che inserisce un **riquadro canvas inline** in un file `.md` 
 - **Settings OCR** — chiave API Gemini (campo password) + lingue OCR configurabili (default: `it, en`)
 - **Supporto Android** — penna disegna, dito scrolla, nessun conflitto handwriting
 - **Comprimi/Espandi** — preview inline si può compattare all'altezza di default (freccia con rotazione 180°)
-- **Bottone portale** — pannello floating in `document.body`, si posiziona sopra il riquadro via RAF + getBoundingClientRect, scompare durante lo scroll (listener scroll + visibility hidden/visible)
+- **Bottone portale** — pannello `position: absolute` figlio diretto dello span (no RAF loop, no scroll listener, no document.body)
 - **Preview non tappabile** — click handler rimosso; l'unico modo per aprire l'editor è il bottone matita nel pannello portale
 - **Modal Windows** — click matita su Desktop apre `DrawingModal` (overlay fullscreen nella stessa finestra, no tab separata)
 - **Nuova tab Android** — click matita su Mobile apre `DrawingEditorView` in tab separata
@@ -252,6 +258,72 @@ background: var(--background-secondary); border-radius: 6px;
 Più: `img { display: none !important }` per nascondere l'SVG e `::after { content: "✏️"; font-size: 28px; opacity: 0.5; }` per l'icona.
 **File**: `styles.css`.
 
+### ✅ TEST EFFETTUATI (sessione 2026-03-23)
+
+#### Bug 5 — Pannello portale visibile nelle impostazioni e ovunque — RISOLTO ✅
+
+**Sintomo**: il pannello portale (`position: fixed` in `document.body`) rimaneva visibile in alto a destra anche navigando nelle impostazioni, in altre schede, ecc.
+**Causa**: il pannello era appeso a `document.body` e il RAF loop di posizionamento lo seguiva solo quando lo span era nel viewport.
+**Fix**: pannello spostato come figlio diretto dello span contenitore con `position: absolute; top: 6px; right: 6px`. Lo span ha `position: relative`. Il pannello è ora parte del DOM del documento e scompare naturalmente quando si naviga altrove.
+**File**: `src/embed.ts` — `createPortalPanel()` + `styles.css`.
+
+---
+
+#### Bug 6 — Comprimi/Espandi modificava anche la larghezza — RISOLTO ✅
+
+**Sintomo**: cliccando il bottone freccia per comprimere/espandere il riquadro, anche la larghezza cambiava (l'immagine si restringeva).
+**Causa**: il codice precedente usava `max-height` sull'elemento `<img>`, che lo scalava proporzionalmente.
+**Fix**: la compressione ora modifica `container.style.height` + `overflow: hidden` sullo span contenitore. L'immagine viene clippata verticalmente senza alterarne la larghezza.
+**File**: `src/embed.ts` — handler del bottone collapse in `createPortalPanel()`.
+
+---
+
+#### Bug 7 — Pannello portale rimane nel DOM dopo disabilitazione plugin — RISOLTO ✅
+
+**Sintomo**: disabilitando il plugin, i pannelli portale (bottoni) rimanevano visibili nel documento.
+**Fix**: `plugin.register(() => panel.remove())` — Obsidian chiama tutti i callback registrati con `plugin.register()` quando il plugin viene disabilitato.
+**File**: `src/embed.ts` — `createPortalPanel()`.
+
+---
+
+#### Bug 8 — Bottoni pannello portale non cliccabili — RISOLTO ✅
+
+**Sintomo**: dopo lo spostamento del pannello dentro lo span, i bottoni non rispondevano al click.
+**Causa**: lo span aveva `pointer-events: none` (impostato in `tryDecorate()` per handwriting Android). Il pannello figlio ereditava la proprietà.
+**Fix**: `pointer-events: auto` in CSS su `.hwm_portal-panel` — ripristina i click solo sul pannello, lasciando il resto dello span non interattivo.
+**File**: `styles.css`.
+
+---
+
+#### Bug 9 — Palette colori SVG non aggiornata al cambio bgMode — RISOLTO ✅
+
+**Sintomo**: cambiando bgMode nelle impostazioni, gli SVG nei documenti aperti mantenevano i vecchi colori dei tratti finché non si ricaricava il plugin.
+**Fix**: aggiunto listener `onBgModeRemap` in `registerEmbed()` registrato in `plugin.bgModeListeners`. Quando il bgMode cambia:
+1. Itera `plugin.embedPaths` (mappa `embedId → svgPath`)
+2. Legge il file SVG dal vault e verifica il marker `hwm-strokes` (ignora SVG non del plugin)
+3. Parsa `viewBox="0 0 W H"` per ottenere le dimensioni reali (non quelle di default, che perderebbero l'auto-expand)
+4. Rimappa i colori dei tratti con `remapStrokeColor()`, rigenera l'SVG con `strokesToSvg()`, salva
+5. Chiama `plugin.refreshPreview(embedId, newContent)` → aggiorna `img.src` con cache-bust
+**File**: `src/embed.ts` — `onBgModeRemap` in `registerEmbed()`.
+
+---
+
+#### Bug 10 — Toolbar editor non aggiornata al cambio bgMode — RISOLTO ✅
+
+**Sintomo**: i bottoni della toolbar nel `DrawingModal` (Windows) e nel `DrawingEditorView` (Android) non cambiavano colore al cambio bgMode.
+**Causa 1 (live update)**: mancava un listener. Aggiunto `bgModeListener` in entrambe le classi, registrato in `bgModeListeners` dopo la costruzione di `colorBtns` (per poterli aggiornare nel closure). Rimosso in `onClose()`.
+**Causa 2 (riapertura)**: il cambio bgMode avviene sempre con editor chiuso. `buildEditor()` viene chiamato di nuovo alla riapertura e legge `plugin.settings.bgMode` → corretto per costruzione. Il problema visivo era CSS.
+**Causa 3 (CSS)**: Obsidian dark theme ha regole tipo `.modal-content button { background: var(...) }` con specificità `0,1,1` > `0,1,0` di `.hwm_btn`, sovrascrivendo il nostro sfondo trasparente. Il colore del topbar senza `!important` veniva sovrascritto analogamente.
+**Fix CSS** (`styles.css`):
+- `.hwm_editor-topbar { background: rgba(240,240,240,0.95) !important }` e `.hwm_editor-topbar--dark { background: rgba(40,40,40,0.97) !important }` — entrambe con `!important` (la `--dark` appare dopo → vince in dark mode per cascade order)
+- `.hwm_editor-topbar .hwm_btn { background: transparent !important; color: #333 !important }` — batte la specificità di Obsidian
+- `.hwm_editor-topbar--dark .hwm_btn { color: #bbb !important }` — appare dopo → vince in dark mode
+- Hover e active espliciti con `!important` per entrambe le modalità
+**Nota importante**: il cambio bgMode viene SEMPRE effettuato con editor chiuso (il modal copre l'intera finestra). Il listener live è presente ma non è il percorso principale.
+**File**: `src/editor-view.ts` + `styles.css`.
+
+---
+
 ### Altri task aperti
 
 1. **Migliorare il riconoscimento dei caratteri speciali markdown** — `src/recognizer.ts` + `src/md-parser.ts`:
@@ -269,6 +341,33 @@ Più: `img { display: none !important }` per nascondere l'SVG e `::after { conte
    - Attualmente la toolbar su Windows è sempre espansa, su Android è compatta con toggle ▼/▲
    - Obiettivo: unico codice toolbar condiviso, compatta di default su entrambe le piattaforme
    - File coinvolti: `src/editor-view.ts` + `styles.css`
+
+4. **Migliorare il riconoscimento OCR da Gemini** — `src/recognizer.ts` + `src/md-parser.ts`:
+   - Migliorare la qualità complessiva del riconoscimento, non solo i simboli markdown
+   - Affinare il prompt con few-shot examples per simboli (`#`, `-`, `>`, `**`, `==`, ecc.)
+   - Valutare se `md-parser.ts` può coprire i casi che il prompt non gestisce
+   - Valutare modelli Gemini alternativi o parametri diversi (temperatura, ecc.)
+
+5. **Tema automatico — seguire il tema di Obsidian o di sistema** — `src/settings.ts` + `src/embed.ts` + `src/editor-view.ts`:
+   - Attualmente il bgMode (chiaro/scuro/custom) è impostato manualmente nelle Settings
+   - Obiettivo: opzione "Automatico" che legge il tema corrente di Obsidian e si adatta
+   - **Alternativa 1 (più semplice)**: leggere `document.body.classList.contains('theme-dark')` → se true, bgMode = dark; altrimenti light. Obsidian aggiunge/rimuove `theme-dark` dal body al cambio tema.
+   - **Alternativa 2**: `window.matchMedia('(prefers-color-scheme: dark)').matches` → segue il tema di sistema OS (indipendente da Obsidian)
+   - L'alternativa 1 è preferibile perché l'utente potrebbe usare un tema Obsidian diverso da quello di sistema
+   - Aggiungere un `MutationObserver` su `document.body` per rilevare il cambio della classe `theme-dark` e chiamare `notifyBgModeChange()` automaticamente
+
+6. **Angoli arrotondati al riquadro e all'overlay** — `styles.css`:
+   - Riquadro inline (lo span `.internal-embed`): aggiungere `border-radius` all'immagine o al container
+   - Overlay `DrawingModal` (`.hwm_modal`): aggiungere `border-radius` al modal e al canvas interno
+   - Attenzione: l'img dentro lo span non rispetta `border-radius` dello span senza `overflow: hidden` sul container
+
+7. **Rimuovere lo switch "Modalità handwriting Android"** — `src/settings.ts` + `src/embed.ts` + `src/main.ts` + `styles.css`:
+   - Lo switch `hwmHandwritingMode` era un workaround per il bug handwriting Android (BUG APERTO), ora considerato comportamento definitivo
+   - Rendere la badge mode **sempre attiva su Android** e la preview piena **sempre attiva su Desktop**, senza toggle manuale
+   - Rimuovere `hwmHandwritingMode` da `HandwritingSettings` e `DEFAULT_SETTINGS` in `settings.ts`
+   - Rimuovere la voce dalla pagina impostazioni
+   - In `registerEmbed()`: sostituire la lettura di `hwmHandwritingMode` con `Platform.isMobile`
+   - Mantenere le classi CSS `hwm-handwriting-mode` e `hwm-badge-mode` (solo applicarle automaticamente)
 
 ### Problemi risolti
 
@@ -292,6 +391,12 @@ Più: `img { display: none !important }` per nascondere l'SVG e `::after { conte
 - **Canvas modal non centrato, toolbar a sinistra (Bug 2)** ✅ — `display: flex; justify-content: center` su `.hwm_canvas-wrap`; `max-width: 100%` su `.hwm_canvas`; classe `hwm_editor-topbar--modal` aggiunta al topbar del modal per centrare la toolbar
 - **Auto-scroll sposta tratti durante disegno (Bug 3)** ✅ — aggiunto `isPointerDown()` in `DrawingCanvas`; scroll automatico bloccato se il pointer è premuto, sia in `DrawingEditorView` che in `DrawingModal`
 - **Badge mode mostra riquadro minuscolo (Bug 4)** ✅ — CSS `.hwm-handwriting-mode .hwm-badge-mode` con `width: 100% !important`, `height: 72px`, flex centrato, `img { display: none }` + `::after` con emoji matita
+- **Pannello portale visibile nelle impostazioni (Bug 5)** ✅ — pannello spostato da `document.body` (position:fixed) a figlio diretto dello span (position:absolute); eliminati RAF loop e scroll listener
+- **Comprimi/Espandi modificava larghezza (Bug 6)** ✅ — usa `container.style.height + overflow:hidden` invece di `max-height` sull'img
+- **Pannello resta dopo disabilitazione plugin (Bug 7)** ✅ — `plugin.register(() => panel.remove())`
+- **Bottoni pannello non cliccabili (Bug 8)** ✅ — `pointer-events: auto` su `.hwm_portal-panel` in CSS
+- **SVG non aggiornati al cambio bgMode (Bug 9)** ✅ — listener `onBgModeRemap` in `bgModeListeners`; legge viewBox per dimensioni reali, rimappa colori, salva SVG, refresh preview
+- **Toolbar editor non aggiornata al cambio bgMode (Bug 10)** ✅ — `bgModeListener` in `DrawingEditorView` e `DrawingModal`; CSS `!important` su topbar e bottoni per battere specificità Obsidian dark theme
 
 ### BUG APERTO — Handwriting disabilitato nel documento quando il riquadro è presente
 
