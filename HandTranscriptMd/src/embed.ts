@@ -44,10 +44,6 @@ interface EmbedData {
    ============================================= */
 
 export function registerEmbed(plugin: HandwritingPlugin) {
-	// Su mobile: badge mode sempre attiva (lo stylus handwriting Android
-	// non è compatibile con SVG a piena altezza nel documento).
-	document.body.classList.toggle('hwm-handwriting-mode', Platform.isMobile);
-
 	// --- Listener globale: remap automatico colori SVG al cambio bgMode ---
 	// Quando l'utente cambia sfondo canvas nelle impostazioni, tutti gli SVG del plugin
 	// attualmente tracciati in embedPaths vengono letti, rimappati e risalvati nel vault.
@@ -130,10 +126,6 @@ function setupMutationObserver(plugin: HandwritingPlugin) {
 
 		// Marca subito come decorato per evitare doppia elaborazione
 		span.dataset.hwmDecorated = '1';
-
-		// Su mobile: badge mode sempre attiva per non bloccare lo stylus handwriting nel testo.
-		// La regola CSS .hwm-handwriting-mode su document.body gestisce la visualizzazione.
-		span.classList.toggle('hwm-badge-mode', Platform.isMobile);
 
 		// TEST A: pointer-events: none sullo span.
 		// Ipotesi: Chrome usa lo stesso hit-test dei pointer events per la
