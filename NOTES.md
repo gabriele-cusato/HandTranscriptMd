@@ -5,6 +5,49 @@ Per istruzioni, architettura e task aperti vedi `CLAUDE.md`.
 
 ---
 
+## ✅ Task completati (sessione 2026-03-24)
+
+### Fix focus perso dopo `window.confirm()` — RISOLTO ✅
+
+**Sintomo**: dopo aver confermato o annullato la cancellazione di un SVG (sia dal pannello portale inline che dalla `DrawingModal`), il focus veniva perso e non era più possibile scrivere nel documento Obsidian finché non si cambiava finestra.
+**Causa**: `window.confirm()` in Electron apre un dialogo nativo che rimuove il focus a livello OS dalla finestra Electron. Alla chiusura il focus non viene ripristinato automaticamente.
+**Fix — `DrawingModal`** (`src/editor-view.ts`): aggiunto metodo `showDeleteConfirm()` che crea un overlay `<div class="hwm_confirm-overlay">` dentro `contentEl` con due bottoni ("Elimina" e "Annulla"). Nessun dialogo nativo, nessun problema di focus. La `doDelete()` del modal usa ora `showDeleteConfirm()` + listener `vault.on('modify')` + `setTimeout(300)` per ripristinare il focus dopo la cancellazione del file.
+**Fix — pannello portale inline** (`src/embed.ts`): aggiunta funzione helper `showInlineConfirm(anchorEl, msg)` che crea lo stesso overlay `position:absolute` sopra l'elemento passato. Sia il bottone elimina del formato wiki che quello del formato legacy usano ora `showInlineConfirm`.
+**File**: `src/editor-view.ts`, `src/embed.ts`, `styles.css`, `src/locales/*.json` (chiavi `confirm_ok`, `confirm_cancel`).
+
+### Fix overlay di conferma non cliccabile nel pannello portale — RISOLTO ✅
+
+**Sintomo**: dopo la conversione all'overlay inline, i bottoni "Elimina" e "Annulla" non erano cliccabili nel pannello portale. Era anche possibile cliccare i bottoni sottostanti attraverso l'overlay.
+**Causa**: due problemi CSS simultanei — (1) l'overlay aveva `z-index: 10`, uguale al pannello portale; (2) il container span eredita `pointer-events: none` e l'overlay lo ereditava.
+**Fix CSS** (`styles.css`): `z-index: 100` sull'overlay + `pointer-events: auto !important` su `.hwm_confirm-overlay` e sui suoi bottoni.
+**File**: `styles.css`.
+
+### Fix letterboxing (bordi neri) su Android al comprimi/espandi — RISOLTO ✅
+
+**Sintomo**: su Android, comprimere o espandere un riquadro SVG creava grossi bordi neri ai lati dell'immagine invece di ridimensionarla correttamente.
+**Causa**: Obsidian Mobile ha un `ResizeObserver` interno sul container span. Quando `container.style.height` veniva modificato, il ResizeObserver si attivava e ricalcolava il layout dell'`<img>`, forzando proporzioni con letterbox.
+**Fix**: tecnica del "wrapper div" — `doCollapse`/`doExpand` in `embed.ts` creano (o riusano) un `<div class="hwm_clip-wrapper">` figlio diretto dell'`<img>`. L'animazione viene applicata sull'altezza del wrapper, mai sul container span, quindi il ResizeObserver non si attiva. `img.parentElement.insertBefore(wrapper, img)` per evitare eccezione silenziosa su Android dove `<img>` non è figlio diretto del container.
+**CSS aggiunto** (`.hwm_clip-wrapper`): `width: 100%; transition: height 0.3s ease;` e regole sull'img figlio per forzare `width: 100%; height: auto; object-fit: unset`.
+**File**: `src/embed.ts`, `styles.css`.
+
+### Animazione comprimi/espandi — AGGIUNTA ✅
+
+**Cosa**: l'altezza del wrapper si anima con `transition: height 0.3s ease`. Al collapse: `scrollHeight` → `collapsedHeight` (px) via `requestAnimationFrame`. All'expand: `collapsedHeight` → `scrollHeight`, poi `height: ''` e `overflow: ''` rimossi su `transitionend` per ripristinare il layout naturale.
+**File**: `src/embed.ts`, `styles.css`.
+
+### Rimozione nome branch dalla versione nelle impostazioni — RISOLTO ✅
+
+**Cosa**: il header della pagina impostazioni mostrava `v1.x.x — branch: overlay`. La stringa del branch è stata rimossa; ora mostra solo `v${this.plugin.manifest.version}`.
+**File**: `src/settings.ts` (rimossa costante `PLUGIN_BRANCH` dall'UI, variabile mantenuta per uso interno).
+
+### Preview SVG nella ricerca "Insert SVG reference" — AGGIUNTA ✅
+
+**Cosa**: il modal fuzzy-search per inserire un riferimento a un SVG esistente ora mostra una thumbnail dell'SVG a sinistra del nome file, invece del solo testo.
+**Implementazione**: override di `renderSuggestion()` in `SvgReferenceSuggest` (`src/main.ts`). Usa `app.vault.getResourcePath(file)` come `src` dell'`<img>`. CSS aggiunto: `.hwm_svg-suggest-item` (flex), `.hwm_svg-thumb` (48×48px, border-radius), `.hwm_svg-suggest-name`.
+**File**: `src/main.ts`, `styles.css`.
+
+---
+
 ## ✅ Task completati (sessione 2026-03-23)
 
 ### Tema automatico (bgMode 'auto')

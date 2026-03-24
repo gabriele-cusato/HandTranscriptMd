@@ -682,18 +682,54 @@ function createPortalPanel(
 	});
 
 	// --- Funzioni condivise: usate dai bottoni e dal menu globale (⋮ Obsidian) ---
+	// Assicura che l'<img> sia dentro un div.hwm_clip-wrapper.
+	// Animiamo solo il wrapper (non il container span) così il ResizeObserver
+	// di Obsidian Mobile sul container non si attiva e non re-imposta le dimensioni dell'img.
+	// Usiamo img.parentElement come anchor per insertBefore: su Android l'img
+	// potrebbe non essere figlia diretta del container span.
+	const ensureWrapper = (): HTMLElement | null => {
+		let wrapper = container.querySelector('.hwm_clip-wrapper') as HTMLElement | null;
+		if (wrapper) return wrapper;
+		const img = container.querySelector('img');
+		if (!img || !img.parentElement) return null;
+		wrapper = document.createElement('div');
+		wrapper.className = 'hwm_clip-wrapper';
+		img.parentElement.insertBefore(wrapper, img);
+		wrapper.appendChild(img);
+		return wrapper;
+	};
+
 	const doExpand = () => {
 		isExpanded = true;
-		container.style.height   = '';
-		container.style.overflow = '';
+		const wrapper = container.querySelector('.hwm_clip-wrapper') as HTMLElement | null;
+		if (wrapper) {
+			// Anima da collapsedHeight verso l'altezza naturale (scrollHeight)
+			wrapper.style.height = wrapper.scrollHeight + 'px';
+			// A transizione finita rimuovi l'altezza esplicita: il wrapper torna flessibile
+			wrapper.addEventListener('transitionend', () => {
+				wrapper.style.height   = '';
+				wrapper.style.overflow = '';
+			}, { once: true });
+		}
+		container.classList.remove('hwm_is-collapsed');
 		collapseBtn.classList.remove('hwm_rotated');
 		collapseBtn.title = t('btn_collapse');
 		collapseBtn.setAttribute('data-hwm-key', 'btn_collapse');
 	};
 	const doCollapse = () => {
 		isExpanded = false;
-		container.style.height   = collapsedHeight + 'px';
-		container.style.overflow = 'hidden';
+		const wrapper = ensureWrapper();
+		if (wrapper) {
+			wrapper.style.overflow = 'hidden';
+			// Prima forza un'altezza esplicita pari all'altezza attuale (altrimenti
+			// la transizione partirebbe da 'auto' e non si animarebbe)
+			wrapper.style.height = wrapper.scrollHeight + 'px';
+			// Nel frame successivo imposta l'altezza target: la transizione CSS scatta
+			requestAnimationFrame(() => {
+				wrapper.style.height = collapsedHeight + 'px';
+			});
+		}
+		container.classList.add('hwm_is-collapsed');
 		collapseBtn.classList.add('hwm_rotated');
 		collapseBtn.title = t('btn_expand');
 		collapseBtn.setAttribute('data-hwm-key', 'btn_expand');

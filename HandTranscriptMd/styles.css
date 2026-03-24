@@ -625,6 +625,26 @@
 	font-size: 14px;
 }
 
+/* Wrapper per il collapse: contiene l'<img> e gestisce il clip.
+   Animiamo solo il wrapper, non il container span, così il ResizeObserver
+   di Obsidian Mobile non si attiva e non re-imposta le dimensioni dell'img. */
+.hwm_clip-wrapper {
+	width: 100%;
+	background: transparent !important;
+	transition: height 0.3s ease;
+}
+/* L'img dentro il wrapper non deve mai rimpicciolirsi: occupa la larghezza
+   piena e la sua altezza naturale, poi il wrapper la clippa dall'alto */
+.hwm_clip-wrapper img {
+	display: block !important;
+	width: 100% !important;
+	height: auto !important;
+	max-height: none !important;
+	min-height: 0 !important;
+	object-fit: unset !important;
+	background: transparent !important;
+}
+
 /* --- Suggest SVG reference: thumbnail + nome file --- */
 .hwm_svg-suggest-item {
 	display: flex;
