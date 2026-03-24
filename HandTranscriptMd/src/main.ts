@@ -7,7 +7,8 @@
    - Tab impostazioni
    ============================================= */
 
-import { Plugin, TFile, Notice } from 'obsidian';
+import { Plugin, TFile, TFolder, Notice, FuzzySuggestModal, FuzzyMatch, MarkdownView, Editor } from 'obsidian';
+import { t, setLocale } from './i18n';
 import { DEFAULT_SETTINGS, HandwritingSettings, HandwritingSettingTab } from './settings';
 import { registerEmbed, insertHandwritingBlock } from './embed';
 import { VIEW_TYPE_HANDWRITING, DrawingEditorView } from './editor-view';
@@ -47,6 +48,9 @@ export default class HandwritingPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
+		// Applica la lingua interfaccia salvata (o la lingua di sistema se 'auto')
+		setLocale(this.settings.uiLanguage);
+
 		// Rileva cambio tema Obsidian (aggiunta/rimozione classe 'theme-dark' sul body).
 		// Se bgMode è 'auto', notifica tutti i listener per aggiornare colori e SVG.
 		const themeObserver = new MutationObserver(() => {
@@ -65,8 +69,19 @@ export default class HandwritingPlugin extends Plugin {
 		this.addCommand({
 			id: 'insert-handwriting',
 			name: 'Insert handwriting block',
+			icon: 'pencil',
 			editorCallback: async () => {
 				await insertHandwritingBlock(this);
+			}
+		});
+
+		// Comando: inserisce un riferimento a un SVG esistente nella cartella handwriting
+		this.addCommand({
+			id: 'insert-svg-reference',
+			name: 'Insert SVG reference',
+			icon: 'file-plus',
+			editorCallback: (editor: Editor) => {
+				new SvgReferenceSuggest(this.app, this, editor).open();
 			}
 		});
 
@@ -86,7 +101,7 @@ export default class HandwritingPlugin extends Plugin {
 			this.app.workspace.on('file-menu', (menu, file) => {
 				if (!(file instanceof TFile) || file.extension !== 'md') return;
 				menu.addItem(item => item
-					.setTitle('Espandi tutti i disegni')
+					.setTitle(t('menu_expand_all'))
 					.setIcon('chevrons-down')
 					.setSection('danger')
 					.onClick(() => {
@@ -94,7 +109,7 @@ export default class HandwritingPlugin extends Plugin {
 					})
 				);
 				menu.addItem(item => item
-					.setTitle('Collassa tutti i disegni')
+					.setTitle(t('menu_collapse_all'))
 					.setIcon('chevrons-up')
 					.setSection('danger')
 					.onClick(() => {
@@ -102,7 +117,7 @@ export default class HandwritingPlugin extends Plugin {
 					})
 				);
 				menu.addItem(item => item
-					.setTitle('Converti tutti i disegni in testo')
+					.setTitle(t('menu_convert_all'))
 					.setIcon('file-text')
 					.setSection('danger')
 					.onClick(async () => {
@@ -112,7 +127,7 @@ export default class HandwritingPlugin extends Plugin {
 								await actions.convert();
 							}
 						} catch (e: unknown) {
-							new Notice('Errore nella conversione: ' + (e instanceof Error ? e.message : String(e)));
+							new Notice(t('error_conversion') + (e instanceof Error ? e.message : String(e)));
 						}
 					})
 				);
@@ -154,5 +169,50 @@ export default class HandwritingPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+}
+
+// Modal fuzzy-search per selezionare un SVG esistente nella cartella handwriting
+// e inserire il riferimento ![[path]] nel cursore dell'editor attivo.
+class SvgReferenceSuggest extends FuzzySuggestModal<TFile> {
+	constructor(
+		app: import('obsidian').App,
+		private plugin: HandwritingPlugin,
+		private editor: Editor
+	) {
+		super(app);
+		this.setPlaceholder('Cerca SVG...');
+	}
+
+	// Restituisce tutti gli SVG nella cartella impostata (esclusa _converted)
+	getItems(): TFile[] {
+		const folder = this.app.vault.getAbstractFileByPath(this.plugin.settings.svgFolder);
+		if (!(folder instanceof TFolder)) return [];
+		return folder.children.filter(
+			(f): f is TFile =>
+				f instanceof TFile &&
+				f.extension === 'svg' &&
+				!f.path.includes('/_converted/')
+		);
+	}
+
+	// Testo usato per il fuzzy-match (nome file)
+	getItemText(file: TFile): string {
+		return file.name;
+	}
+
+	// Mostra thumbnail SVG + nome file invece del solo testo
+	renderSuggestion(match: FuzzyMatch<TFile>, el: HTMLElement): void {
+		const file = match.item;
+		el.addClass('hwm_svg-suggest-item');
+		// Thumbnail SVG tramite resource URL del vault
+		const img = el.createEl('img', { cls: 'hwm_svg-thumb' });
+		img.src = this.app.vault.getResourcePath(file);
+		el.createEl('span', { text: file.name, cls: 'hwm_svg-suggest-name' });
+	}
+
+	// Inserisce ![[path]] al cursore quando l'utente seleziona un file
+	onChooseItem(file: TFile): void {
+		this.editor.replaceSelection(`![[${file.path}]]`);
 	}
 }

@@ -22,10 +22,12 @@ import {
 const ICONS: Record<string, string> = {
 	'file-text':   `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>`,
 	'x':           `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`,
+	'file-x':      `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="9.5" y1="12.5" x2="14.5" y2="17.5"/><line x1="14.5" y1="12.5" x2="9.5" y2="17.5"/></svg>`,
 	'chevron-up':  `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>`,
 	'pencil':      `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>`,
 };
 import type HandwritingPlugin from './main';
+import { t } from './i18n';
 import { Stroke } from './drawing-canvas';
 import { strokesToSvg, parseSvgStrokes, generateId } from './svg-utils';
 import { getEffectiveBgColor, getEffectiveLineColor, remapStrokeColor, BgMode } from './settings';
@@ -115,7 +117,7 @@ function setupMutationObserver(plugin: HandwritingPlugin) {
 
 		const filename = svgPath.split('/').pop() ?? '';
 		const embedId  = filename.replace('.svg', '');
-		if (!embedId.startsWith('hw_')) return;
+		if (!embedId.startsWith('hw_') && !embedId.startsWith('HTMD_')) return;
 
 		// Se Obsidian non ha ancora caricato l'immagine (classe image-embed
 		// assente), riprova tra 150 ms — il caricamento è asincrono.
@@ -248,13 +250,13 @@ function showLegacyPreview(
 	const btnBar = container.createDiv({ cls: 'hwm_inline-buttons' });
 	if (isDark) btnBar.classList.add('hwm_inline-buttons--dark');
 
-	const deleteBtn = createBtn(btnBar, 'x', 'Elimina riquadro');
+	const deleteBtn = createBtn(btnBar, 'file-x', 'Elimina riquadro');
 	deleteBtn.classList.add('hwm_delete-btn');
 
 	const convertBtn = createBtn(btnBar, 'file-text', 'Converti in Markdown');
 	convertBtn.classList.add('hwm_convert-btn');
 
-	const collapseBtn = createBtn(btnBar, 'chevron-up', 'Comprimi');
+	const collapseBtn = createBtn(btnBar, 'chevron-up', 'btn_collapse');
 	collapseBtn.classList.add('hwm_collapse-btn');
 
 	// --- Preview SVG via CSS background-image (nessun <img> dentro cm-content) ---
@@ -282,12 +284,14 @@ function showLegacyPreview(
 			preview.classList.remove('hwm_collapsed');
 			preview.style.maxHeight = '';
 			collapseBtn.classList.remove('hwm_rotated');
-			collapseBtn.title = 'Comprimi';
+			collapseBtn.title = t('btn_collapse');
+			collapseBtn.setAttribute('data-hwm-key', 'btn_collapse');
 		} else {
 			preview.classList.add('hwm_collapsed');
 			preview.style.maxHeight = collapsedHeight + 'px';
 			collapseBtn.classList.add('hwm_rotated');
-			collapseBtn.title = 'Espandi';
+			collapseBtn.title = t('btn_expand');
+			collapseBtn.setAttribute('data-hwm-key', 'btn_expand');
 		}
 	});
 
@@ -307,7 +311,7 @@ function showLegacyPreview(
 	// Elimina
 	deleteBtn.addEventListener('click', async (e) => {
 		e.stopPropagation();
-		if (!confirm('Eliminare questo riquadro handwriting e il file SVG associato?')) return;
+		if (!await showInlineConfirm(container, t('confirm_delete'))) return;
 		await removeLegacyEmbed(ctx, data, plugin);
 	});
 }
@@ -622,7 +626,7 @@ function createPortalPanel(
 	// --- Bottone matita ---
 	// Desktop: apre DrawingModal (overlay fullscreen, senza aprire nuova tab)
 	// Mobile: apre DrawingEditorView in una nuova tab
-	const pencilBtn = createPanelBtn(panel, 'pencil', 'Apri editor disegno');
+	const pencilBtn = createPanelBtn(panel, 'pencil', 'btn_open_editor');
 	pencilBtn.addEventListener('click', async () => {
 		if (Platform.isDesktop) {
 			if (modalOpen) return;
@@ -659,21 +663,21 @@ function createPortalPanel(
 	panel.appendChild(sep);
 
 	// --- Bottone converti in Markdown ---
-	const convertBtn = createPanelBtn(panel, 'file-text', 'Converti in Markdown');
+	const convertBtn = createPanelBtn(panel, 'file-text', 'btn_convert');
 
 	// --- Bottone comprimi/espandi ---
 	// Usa height + overflow:hidden sul container (non max-height sull'<img>):
 	// così l'immagine viene ritagliata verticalmente senza che la larghezza cambi.
 	// Il pannello (position:absolute, top:6px) resta dentro l'area visibile
 	// anche da compresso (collapsedHeight è sempre >> 6px + altezza pannello).
-	const collapseBtn = createPanelBtn(panel, 'chevron-up', 'Comprimi');
+	const collapseBtn = createPanelBtn(panel, 'chevron-up', 'btn_collapse');
 	collapseBtn.classList.add('hwm_collapse-btn');
 
 	// --- Bottone elimina ---
-	const deleteBtn = createPanelBtn(panel, 'x', 'Elimina riquadro');
+	const deleteBtn = createPanelBtn(panel, 'file-x', 'btn_delete');
 	deleteBtn.classList.add('hwm_delete-btn');
 	deleteBtn.addEventListener('click', async () => {
-		if (!confirm('Eliminare questo riquadro handwriting e il file SVG associato?')) return;
+		if (!await showInlineConfirm(container, t('confirm_delete'))) return;
 		await removeWikiEmbed(svgPath, sourcePath, plugin);
 	});
 
@@ -683,14 +687,16 @@ function createPortalPanel(
 		container.style.height   = '';
 		container.style.overflow = '';
 		collapseBtn.classList.remove('hwm_rotated');
-		collapseBtn.title = 'Comprimi';
+		collapseBtn.title = t('btn_collapse');
+		collapseBtn.setAttribute('data-hwm-key', 'btn_collapse');
 	};
 	const doCollapse = () => {
 		isExpanded = false;
 		container.style.height   = collapsedHeight + 'px';
 		container.style.overflow = 'hidden';
 		collapseBtn.classList.add('hwm_rotated');
-		collapseBtn.title = 'Espandi';
+		collapseBtn.title = t('btn_expand');
+		collapseBtn.setAttribute('data-hwm-key', 'btn_expand');
 	};
 	// Carica SVG e chiama doConvertWiki (che lancia eccezione in caso di errore)
 	const doConvertAction = async () => {
@@ -740,11 +746,27 @@ function createPortalPanel(
 	plugin.register(() => plugin.bgModeListeners.delete(onBgMode));
 }
 
-// Crea un bottone div nel pannello portale
-function createPanelBtn(parent: HTMLElement, icon: string, title: string): HTMLElement {
+// Overlay di conferma inline su un elemento position:relative.
+// Evita window.confirm() che in Electron ruba il focus dalla finestra.
+function showInlineConfirm(anchorEl: HTMLElement, msg: string): Promise<boolean> {
+	return new Promise(resolve => {
+		const overlay = anchorEl.createDiv({ cls: 'hwm_confirm-overlay' });
+		overlay.createEl('span', { text: msg, cls: 'hwm_confirm-msg' });
+		const okBtn = overlay.createEl('button', { text: t('confirm_ok'), cls: 'mod-warning' });
+		const cancelBtn = overlay.createEl('button', { text: t('confirm_cancel') });
+		okBtn.addEventListener('click', () => { overlay.remove(); resolve(true); });
+		cancelBtn.addEventListener('click', () => { overlay.remove(); resolve(false); });
+		okBtn.focus();
+	});
+}
+
+// Crea un bottone div nel pannello portale.
+// key: chiave i18n — usata sia per il title che per data-hwm-key (aggiornamento live al cambio lingua)
+function createPanelBtn(parent: HTMLElement, icon: string, key: string): HTMLElement {
 	const btn = document.createElement('div');
 	btn.className = 'hwm_btn';
-	btn.setAttribute('title', title);
+	btn.setAttribute('title', t(key as any));
+	btn.setAttribute('data-hwm-key', key);
 	btn.setAttribute('role', 'button');
 	btn.setAttribute('tabindex', '0');
 	btn.innerHTML = ICONS[icon] ?? '';
@@ -808,8 +830,10 @@ function createLegacyPortalButton(
 
 // Usa <div> invece di <button> per i bottoni dentro cm-content.
 // I <button> su Android Mobile possono interferire con l'handwriting.
-function createBtn(parent: HTMLElement, icon: string, title: string): HTMLElement {
-	const btn = parent.createDiv({ cls: 'hwm_btn', attr: { title, role: 'button', tabindex: '0' } });
+// key: chiave i18n — usata sia per il title che per data-hwm-key (aggiornamento live al cambio lingua)
+function createBtn(parent: HTMLElement, icon: string, key: string): HTMLElement {
+	const btn = parent.createDiv({ cls: 'hwm_btn', attr: { title: t(key as any), role: 'button', tabindex: '0' } });
+	btn.setAttribute('data-hwm-key', key);
 	btn.innerHTML = ICONS[icon] ?? '';
 	return btn;
 }

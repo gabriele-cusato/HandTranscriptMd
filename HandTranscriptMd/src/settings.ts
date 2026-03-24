@@ -4,6 +4,7 @@
 
 import { App, PluginSettingTab, Setting } from 'obsidian';
 import type HandwritingPlugin from './main';
+import { t, setLocale, availableLocales, localeNames } from './i18n';
 
 // Modalità sfondo: chiaro, scuro o automatico (segue il tema di Obsidian)
 export type BgMode = 'light' | 'dark' | 'auto';
@@ -16,6 +17,7 @@ export interface HandwritingSettings {
 	ocrLanguages: string[];       // lingue per il riconoscimento OCR (codici BCP-47, es. 'it', 'en')
 	geminiApiKey: string;         // chiave API Google Gemini per l'OCR
 	debugMode: boolean;           // mostra Notice di debug per eventi IME/touch
+	uiLanguage: string;           // lingua dell'interfaccia impostazioni ('auto' = segue sistema)
 }
 
 // Colori predefiniti per le modalità light e dark
@@ -79,6 +81,7 @@ export const DEFAULT_SETTINGS: HandwritingSettings = {
 	ocrLanguages: ['it', 'en'],   // italiano e inglese di default
 	geminiApiKey: '',
 	debugMode: false,
+	uiLanguage: 'auto',           // default: segue la lingua di sistema di Obsidian
 };
 
 // Nome del branch corrente — aggiornare manualmente ad ogni cambio di branch
@@ -98,16 +101,35 @@ export class HandwritingSettingTab extends PluginSettingTab {
 
 		containerEl.createEl('h2', { text: 'Handwriting to Markdown' });
 
-		// Riga versione + branch
+		// Riga versione
 		containerEl.createEl('p', {
-			text: `v${this.plugin.manifest.version} — branch: ${PLUGIN_BRANCH}`,
+			text: `v${this.plugin.manifest.version}`,
 			cls: 'setting-item-description',
 		});
 
+		// --- Lingua interfaccia ---
+		new Setting(containerEl)
+			.setName(t('ui_language_name'))
+			.setDesc(t('ui_language_desc'))
+			.addDropdown(drop => {
+				// Prima voce: automatico
+				drop.addOption('auto', t('ui_language_auto'));
+				// Una voce per ogni lingua disponibile nel plugin, con nome nativo
+				availableLocales().forEach(code => drop.addOption(code, localeNames[code] ?? code));
+				drop.setValue(this.plugin.settings.uiLanguage);
+				drop.onChange(async (value) => {
+					this.plugin.settings.uiLanguage = value;
+					await this.plugin.saveSettings();
+					// Aggiorna il dizionario attivo e ridisegna la pagina impostazioni
+					setLocale(value);
+					this.display();
+				});
+			});
+
 		// --- Cartella SVG ---
 		new Setting(containerEl)
-			.setName('Cartella SVG')
-			.setDesc('Cartella nel vault dove vengono salvati i file SVG dei disegni')
+			.setName(t('svg_folder_name'))
+			.setDesc(t('svg_folder_desc'))
 			.addText(text => text
 				.setPlaceholder('_handwriting')
 				.setValue(this.plugin.settings.svgFolder)
@@ -118,8 +140,8 @@ export class HandwritingSettingTab extends PluginSettingTab {
 
 		// --- Larghezza canvas ---
 		new Setting(containerEl)
-			.setName('Larghezza canvas')
-			.setDesc('Risoluzione orizzontale del canvas in pixel')
+			.setName(t('canvas_width_name'))
+			.setDesc(t('canvas_width_desc'))
 			.addText(text => text
 				.setValue(String(this.plugin.settings.canvasWidth))
 				.onChange(async (value) => {
@@ -132,8 +154,8 @@ export class HandwritingSettingTab extends PluginSettingTab {
 
 		// --- Altezza canvas ---
 		new Setting(containerEl)
-			.setName('Altezza canvas')
-			.setDesc('Risoluzione verticale del canvas in pixel')
+			.setName(t('canvas_height_name'))
+			.setDesc(t('canvas_height_desc'))
 			.addText(text => text
 				.setValue(String(this.plugin.settings.canvasHeight))
 				.onChange(async (value) => {
@@ -146,12 +168,12 @@ export class HandwritingSettingTab extends PluginSettingTab {
 
 		// --- Sfondo canvas ---
 		new Setting(containerEl)
-			.setName('Sfondo canvas')
-			.setDesc('Colore di sfondo del riquadro di disegno. "Automatico" segue il tema di Obsidian.')
+			.setName(t('bg_mode_name'))
+			.setDesc(t('bg_mode_desc'))
 			.addDropdown(drop => drop
-				.addOption('auto', 'Automatico (segue tema Obsidian)')
-				.addOption('light', 'Chiaro (bianco)')
-				.addOption('dark', 'Scuro (grigio scuro)')
+				.addOption('auto', t('bg_mode_auto'))
+				.addOption('light', t('bg_mode_light'))
+				.addOption('dark', t('bg_mode_dark'))
 				.setValue(this.plugin.settings.bgMode)
 				.onChange(async (value) => {
 					this.plugin.settings.bgMode = value as BgMode;
@@ -162,8 +184,8 @@ export class HandwritingSettingTab extends PluginSettingTab {
 
 		// --- Chiave API Gemini ---
 		new Setting(containerEl)
-			.setName('Chiave API Gemini')
-			.setDesc('Necessaria per il riconoscimento OCR della scrittura a mano. Ottienila da Google AI Studio (aistudio.google.com).')
+			.setName(t('gemini_key_name'))
+			.setDesc(t('gemini_key_desc'))
 			.addText(text => {
 				text
 					.setPlaceholder('AIza...')
@@ -178,11 +200,8 @@ export class HandwritingSettingTab extends PluginSettingTab {
 
 		// --- Lingue OCR ---
 		new Setting(containerEl)
-			.setName('Lingue OCR')
-			.setDesc(
-				'Codici lingua BCP-47 separati da virgola (es. "it, en, fr"). ' +
-				'Usati dal riconoscitore di scrittura su Android.'
-			)
+			.setName(t('ocr_langs_name'))
+			.setDesc(t('ocr_langs_desc'))
 			.addText(text => text
 				// Mostra l'array come stringa "it, en"
 				.setValue(this.plugin.settings.ocrLanguages.join(', '))
@@ -197,70 +216,66 @@ export class HandwritingSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		// --- Modalità debug ---
-		new Setting(containerEl)
-			.setName('Modalità debug')
-			.setDesc('Mostra notifiche in tempo reale per eventi IME/touch (utile per diagnosticare problemi su Android).')
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.debugMode)
-				.onChange(async (value) => {
-					this.plugin.settings.debugMode = value;
-					await this.plugin.saveSettings();
-				}));
+		// --- Modalità debug (nascosta dall'UI, funzionalità mantenuta) ---
 
 		// --- Riferimento keyword OCR (sezione espandibile) ---
 		// NOTA SVILUPPATORI: se aggiungi una keyword in md-parser.ts, aggiornala anche qui!
 		const details = containerEl.createEl('details', { cls: 'hwm_keyword-ref' });
 		details.createEl('summary', {
-			text: 'Keyword riconosciute dal parser OCR',
+			text: t('keywords_summary'),
 			cls: 'hwm_keyword-summary',
 		});
 		details.createEl('p', {
-			text: 'Scrivi queste keyword nel disegno per generare la struttura markdown corrispondente. Tutte sono case-insensitive (//h1 = //H1). Il contenuto segue dopo la keyword separato da uno spazio.',
+			text: t('keywords_desc'),
 			cls: 'setting-item-description',
 		});
 
 		// Tabella keyword: [nome, sintassi, output]
+		// Le parole segnaposto (titolo, testo, ecc.) vengono tradotte via t()
+		const T = t('kw_title');   // es. "Titolo" / "Title"
+		const X = t('kw_text');    // es. "testo"  / "text"
+		const FN = t('kw_footnote'); // es. "nota a piè pagina" / "footnote"
+		const W = t('kw_word');    // es. "parola" / "word"
 		const KEYWORDS: [string, string, string][] = [
-			['//H1',              '//H1 Titolo',              '# Titolo'],
-			['//H2',              '//H2 Titolo',              '## Titolo'],
-			['//H3',              '//H3 Titolo',              '### Titolo'],
-			['//H4',              '//H4 Titolo',              '#### Titolo'],
-			['//B / //BOLD',      '//B testo',                '**testo**'],
-			['//I',               '//I testo',                '*testo*'],
-			['//BI',              '//BI testo',               '***testo***'],
-			['//S / //STRIKE',    '//S testo',                '~~testo~~'],
-			['//HL',              '//HL testo',               '==testo=='],
-			['//CODE',            '//CODE testo',             '`testo`'],
+			['//H1',              `//H1 ${T}`,                `# ${T}`],
+			['//H2',              `//H2 ${T}`,                `## ${T}`],
+			['//H3',              `//H3 ${T}`,                `### ${T}`],
+			['//H4',              `//H4 ${T}`,                `#### ${T}`],
+			['//B / //BOLD',      `//B ${X}`,                 `**${X}**`],
+			['//I',               `//I ${X}`,                 `*${X}*`],
+			['//BI',              `//BI ${X}`,                `***${X}***`],
+			['//S / //STRIKE',    `//S ${X}`,                 `~~${X}~~`],
+			['//HL',              `//HL ${X}`,                `==${X}==`],
+			['//CODE',            `//CODE ${X}`,              `\`${X}\``],
 			['//CODEBLOCK',       '//CODEBLOCK js',           '```js\n...\n```'],
 			['//LIST',            '//LIST a, b, c',           '- a\n- b\n- c'],
 			['//NUMLIST',         '//NUMLIST a, b, c',        '1. a\n2. b\n3. c'],
 			['//CHECK',           '//CHECK a, b, c',          '- [ ] a\n- [ ] b\n- [ ] c'],
 			['//TABLE',           '//TABLE Col1, Col2',       '| Col1 | Col2 |\n|---|---|\n| ... |'],
-			['//NOTE',            '//NOTE testo',             '> [!NOTE]\n> testo'],
-			['//WARN',            '//WARN testo',             '> [!WARNING]\n> testo'],
-			['//TIP',             '//TIP testo',              '> [!TIP]\n> testo'],
-			['//INFO',            '//INFO testo',             '> [!INFO]\n> testo'],
-			['//ERROR',           '//ERROR testo',            '> [!ERROR]\n> testo'],
-			['//IMPORTANT',       '//IMPORTANT testo',        '> [!IMPORTANT]\n> testo'],
-			['//QUOTE',           '//QUOTE testo',            '> testo'],
-			['//LINK',            '//LINK testo, url',        '[testo](url)'],
+			['//NOTE',            `//NOTE ${X}`,              `> [!NOTE]\n> ${X}`],
+			['//WARN',            `//WARN ${X}`,              `> [!WARNING]\n> ${X}`],
+			['//TIP',             `//TIP ${X}`,               `> [!TIP]\n> ${X}`],
+			['//INFO',            `//INFO ${X}`,              `> [!INFO]\n> ${X}`],
+			['//ERROR',           `//ERROR ${X}`,             `> [!ERROR]\n> ${X}`],
+			['//IMPORTANT',       `//IMPORTANT ${X}`,         `> [!IMPORTANT]\n> ${X}`],
+			['//QUOTE',           `//QUOTE ${X}`,             `> ${X}`],
+			['//LINK',            `//LINK ${X}, url`,         `[${X}](url)`],
 			['//IMG',             '//IMG alt, url',           '![alt](url)'],
 			['//HR / //SEP',      '//HR',                     '---'],
-			['//FN',              '//FN nota a piè pagina',   '[^1]: nota a piè pagina'],
+			['//FN',              `//FN ${FN}`,               `[^1]: ${FN}`],
 			['//MATH',            '//MATH formula',           '$formula$'],
 			['//MATHBLOCK',       '//MATHBLOCK',              '$$\n...\n$$'],
-			['//TAG',             '//TAG parola',             '#parola'],
+			['//TAG',             `//TAG ${W}`,               `#${W}`],
 			['//DATE',            '//DATE',                   'YYYY-MM-DD'],
 			['//TIME',            '//TIME',                   'HH:mm'],
 			['//DATETIME',        '//DATETIME',               'YYYY-MM-DD HH:mm'],
-			['//INDENT',          '//INDENT testo',           '  testo'],
+			['//INDENT',          `//INDENT ${X}`,            `  ${X}`],
 		];
 
 		const table = details.createEl('table', { cls: 'hwm_keyword-table' });
 		const thead = table.createEl('thead');
 		const hrow  = thead.createEl('tr');
-		['Keyword', 'Sintassi', 'Output'].forEach(h => hrow.createEl('th', { text: h }));
+		[t('keywords_col_keyword'), t('keywords_col_syntax'), t('keywords_col_output')].forEach(h => hrow.createEl('th', { text: h }));
 		const tbody = table.createEl('tbody');
 		for (const [name, syntax, output] of KEYWORDS) {
 			const row = tbody.createEl('tr');

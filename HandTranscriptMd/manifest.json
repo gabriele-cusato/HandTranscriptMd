@@ -1,6 +1,6 @@
 {
 	"id": "handwriting-to-markdown",
-	"name": "Handwriting to Markdown",
+	"name": "HandTranscriptMd",
 	"version": "0.1.0",
 	"minAppVersion": "0.15.0",
 	"description": "Inline handwriting canvas with conversion to structured markdown",

@@ -584,9 +584,67 @@
 	padding: 0 !important;
 }
 
-/* Topbar del DrawingModal: centra la toolbar (non c'è backBtn come nell'EditorView) */
+/* Topbar centrata: usata sia nel DrawingModal (Windows) che in DrawingEditorView (Android).
+   position: relative serve ad ancorare il bottone chiudi (position: absolute) */
 .hwm_editor-topbar--modal {
 	justify-content: center;
+	position: relative;
+}
+
+/* Bottone X chiudi: ancorato al bordo destro del topbar, indipendente dal toolbar centrato */
+.hwm_close-btn {
+	position: absolute !important;
+	right: 8px;
+	top: 50%;
+	transform: translateY(-50%);
+}
+
+/* Nasconde la X nativa di Obsidian nel DrawingModal: la chiusura avviene dal bottone X in toolbar */
+.hwm_modal .modal-close-button {
+	display: none !important;
+}
+
+/* Overlay di conferma inline — no Modal annidato, nessun furto di focus */
+.hwm_confirm-overlay {
+	position: absolute;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.6);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 12px;
+	z-index: 100; /* sopra il pannello portale (z-index: 10) */
+	border-radius: inherit;
+	pointer-events: auto !important; /* override pointer-events:none dello span padre */
+}
+.hwm_confirm-overlay button {
+	pointer-events: auto !important;
+}
+.hwm_confirm-msg {
+	color: #fff;
+	font-size: 14px;
+}
+
+/* --- Suggest SVG reference: thumbnail + nome file --- */
+.hwm_svg-suggest-item {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 4px 0;
+}
+.hwm_svg-thumb {
+	width: 80px;
+	height: 48px;
+	object-fit: contain;
+	border-radius: 4px;
+	background: var(--background-secondary);
+	flex-shrink: 0;
+}
+.hwm_svg-suggest-name {
+	font-size: 13px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 /* --- Scroll container per il canvas nell'editor --- */

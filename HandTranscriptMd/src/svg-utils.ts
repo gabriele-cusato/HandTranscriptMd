@@ -7,11 +7,14 @@
 
 import { Point, Stroke } from './drawing-canvas';
 
-// Genera ID univoco per nuovi disegni (timestamp + random)
+// Genera ID univoco per nuovi disegni nel formato HTMD_YYYYMMDDHHMMSS_XXXX
 export function generateId(): string {
-	const ts = Date.now().toString(36);
-	const rnd = Math.random().toString(36).substring(2, 6);
-	return `hw_${ts}_${rnd}`;
+	const now = new Date();
+	const p = (n: number) => String(n).padStart(2, '0');
+	const date = `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}`;
+	const time = `${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
+	const rnd  = Math.random().toString(36).substring(2, 6).toUpperCase();
+	return `HTMD_${date}${time}_${rnd}`;
 }
 
 // Converte un array di punti in un attributo SVG path "d"

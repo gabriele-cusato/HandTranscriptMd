@@ -5,13 +5,14 @@
    handwriting Android.
    ============================================= */
 
-import { ItemView, WorkspaceLeaf, TFile, Notice, Platform, Modal, App } from 'obsidian';
+import { ItemView, WorkspaceLeaf, TFile, Notice, Platform, Modal, App, MarkdownView } from 'obsidian';
 import type HandwritingPlugin from './main';
 import { DrawingCanvas, Stroke } from './drawing-canvas';
 import { strokesToSvg, parseSvgStrokes } from './svg-utils';
 import { getEffectiveBgColor, getEffectiveLineColor, remapStrokeColor } from './settings';
 import { getRecognizer } from './recognizer';
 import { parseMarkdown } from './md-parser';
+import { t } from './i18n';
 
 export const VIEW_TYPE_HANDWRITING = 'handwriting-editor';
 
@@ -31,6 +32,7 @@ const ICONS: Record<string, string> = {
 	'file-text':   `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>`,
 	'save':        `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>`,
 	'x':           `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`,
+	'file-x':      `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="9.5" y1="12.5" x2="14.5" y2="17.5"/><line x1="14.5" y1="12.5" x2="9.5" y2="17.5"/></svg>`,
 	'chevron-down':`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`,
 	'chevron-up':  `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>`,
 	'arrow-left':  `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>`,
@@ -98,34 +100,18 @@ export class DrawingEditorView extends ItemView {
 		const lineColor = getEffectiveLineColor(this.plugin.settings);
 		el.style.backgroundColor = bgColor;
 
-		// --- Top bar: ← a sinistra | toolbar a destra ---
-		const topbar = el.createDiv({ cls: 'hwm_editor-topbar' });
+		// --- Top bar: toolbar centrata ---
+		const topbar = el.createDiv({ cls: 'hwm_editor-topbar hwm_editor-topbar--modal' });
 		if (isDark) topbar.classList.add('hwm_editor-topbar--dark');
 
-		// Bottone ← (torna al documento)
-		const backBtn = this.mkBtn(topbar, 'arrow-left', 'Torna al documento');
-		backBtn.classList.add('hwm_back-btn');
-
-		// Toolbar (allineata a destra dentro il topbar)
+		// Toolbar centrata nel topbar
 		const toolbar = topbar.createDiv({ cls: 'hwm_toolbar hwm_editor-toolbar' });
 		if (isDark) toolbar.classList.add('hwm_toolbar--dark');
 
-		// Toggle compatta (mobile)
-		if (isMobile) {
-			toolbar.classList.add('hwm_toolbar--compact');
-			const toggleBtn = this.mkBtn(toolbar, 'chevron-down', 'Mostra tutti');
-			toggleBtn.classList.add('hwm_toggle-btn');
-			toggleBtn.addEventListener('click', () => {
-				const compact = toolbar.classList.toggle('hwm_toolbar--compact');
-				updateColorSizes(compact);
-				toggleBtn.innerHTML = ICONS[compact ? 'chevron-down' : 'chevron-up'] ?? '';
-			});
-		}
-
 		// Penna / Gomma
-		const penBtn = this.mkBtn(toolbar, 'pencil', 'Penna');
+		const penBtn = this.mkBtn(toolbar, 'pencil', 'btn_pen');
 		penBtn.classList.add('hwm_active', 'hwm_pen-btn');
-		const eraserBtn = this.mkBtn(toolbar, 'eraser', 'Gomma');
+		const eraserBtn = this.mkBtn(toolbar, 'eraser', 'btn_eraser');
 		eraserBtn.classList.add('hwm_eraser-btn');
 		toolbar.createDiv({ cls: 'hwm_separator' });
 
@@ -151,16 +137,6 @@ export class DrawingEditorView extends ItemView {
 			colorBtns.push(btn);
 		}
 		toolbar.createDiv({ cls: 'hwm_separator' });
-
-		// Helper per dimensioni pallini in toolbar compatta
-		const updateColorSizes = (compact: boolean) => {
-			colorBtns.forEach(b => {
-				const sz = (!compact || b.classList.contains('hwm_active')) ? '22px' : '0';
-				b.style.setProperty('min-width', sz, 'important');
-				b.style.setProperty('min-height', sz, 'important');
-			});
-		};
-		if (isMobile) updateColorSizes(true);
 
 		// Listener bgMode: aggiorna toolbar, pallini colore e sfondo canvas al cambio tema.
 		// Deve stare DOPO la dichiarazione di colorBtns per poterli aggiornare nel closure.
@@ -189,21 +165,29 @@ export class DrawingEditorView extends ItemView {
 		this.plugin.bgModeListeners.add(this.bgModeListener);
 
 		// Undo / Redo / Clear
-		const undoBtn = this.mkBtn(toolbar, 'rotate-ccw', 'Annulla');
+		const undoBtn = this.mkBtn(toolbar, 'rotate-ccw', 'btn_undo');
 		undoBtn.classList.add('hwm_undo-btn');
-		const redoBtn = this.mkBtn(toolbar, 'rotate-cw', 'Ripristina');
+		const redoBtn = this.mkBtn(toolbar, 'rotate-cw', 'btn_redo');
 		redoBtn.classList.add('hwm_redo-btn');
-		const clearBtn = this.mkBtn(toolbar, 'trash', 'Cancella tutto');
+		const clearBtn = this.mkBtn(toolbar, 'trash', 'btn_clear');
 		clearBtn.classList.add('hwm_clear-btn');
 		toolbar.createDiv({ cls: 'hwm_separator' });
 
 		// Converti / Salva / Elimina
-		const convertBtn = this.mkBtn(toolbar, 'file-text', 'Converti in Markdown');
+		const convertBtn = this.mkBtn(toolbar, 'file-text', 'btn_convert');
 		convertBtn.classList.add('hwm_convert-btn');
-		const saveBtn = this.mkBtn(toolbar, 'save', 'Salva');
+		const saveBtn = this.mkBtn(toolbar, 'save', 'btn_save');
 		saveBtn.classList.add('hwm_save-btn');
-		const deleteBtn = this.mkBtn(toolbar, 'x', 'Elimina riquadro');
+		const deleteBtn = this.mkBtn(toolbar, 'file-x', 'btn_delete');
 		deleteBtn.classList.add('hwm_delete-btn');
+
+		// Bottone chiudi (X): nel topbar, posizionata a destra via CSS absolute
+		const closeBtn = this.mkBtn(topbar, 'x', 'btn_close');
+		closeBtn.classList.add('hwm_close-btn');
+		closeBtn.addEventListener('click', async () => {
+			await this.saveSvg();
+			this.leaf.detach();
+		});
 
 		// --- Scroll container ---
 		const scrollWrap = el.createDiv({ cls: 'hwm_editor-scroll' });
@@ -280,10 +264,6 @@ export class DrawingEditorView extends ItemView {
 		});
 
 		// Bottone ← → salva e chiudi la tab
-		backBtn.addEventListener('click', async () => {
-			await this.saveSvg();
-			this.leaf.detach();
-		});
 	}
 
 	/* ---------- File I/O ---------- */
@@ -355,7 +335,7 @@ export class DrawingEditorView extends ItemView {
 	/* ---------- Elimina ---------- */
 
 	private async doDelete() {
-		if (!confirm('Eliminare questo riquadro handwriting e il file SVG associato?')) return;
+		if (!confirm(t('confirm_delete'))) return;
 		if (this.canvas) { this.canvas.destroy(); this.canvas = null; }
 		// Rimuovi code block dal .md
 		await this.removeCodeBlock();
@@ -363,7 +343,7 @@ export class DrawingEditorView extends ItemView {
 		const svgFile = this.app.vault.getAbstractFileByPath(this.svgPath);
 		if (svgFile instanceof TFile) await this.app.vault.delete(svgFile);
 		this.leaf.detach();
-		new Notice('Riquadro eliminato');
+		new Notice(t('btn_delete'));
 	}
 
 	/* ---------- Manipolazione file .md ---------- */
@@ -423,8 +403,10 @@ export class DrawingEditorView extends ItemView {
 
 	/* ---------- Helpers ---------- */
 
-	private mkBtn(parent: HTMLElement, icon: string, title: string): HTMLElement {
-		const btn = parent.createEl('button', { cls: 'hwm_btn', attr: { title } });
+	private mkBtn(parent: HTMLElement, icon: string, key: string): HTMLElement {
+		const label = t(key as any);
+		const btn = parent.createEl('button', { cls: 'hwm_btn', attr: { title: label } });
+		btn.setAttribute('data-hwm-key', key);
 		btn.innerHTML = ICONS[icon] ?? '';
 		return btn;
 	}
@@ -508,30 +490,17 @@ export class DrawingModal extends Modal {
 		const lineColor = getEffectiveLineColor(this.plugin.settings);
 		el.style.backgroundColor = bgColor;
 
-		// Top bar con toolbar (nessun backBtn: il Modal ha già la X nativa).
-		// La classe --modal centra la toolbar orizzontalmente (nel DrawingEditorView
-		// c'è il backBtn a sinistra e space-between; qui invece la toolbar è l'unico figlio).
+		// Top bar con toolbar centrata. La X nativa di Obsidian è nascosta via CSS
+		// (hwm_modal .modal-close-button); la chiusura avviene dal bottone X in toolbar.
 		const topbar = el.createDiv({ cls: 'hwm_editor-topbar hwm_editor-topbar--modal' });
 		if (isDark) topbar.classList.add('hwm_editor-topbar--dark');
 
 		const toolbar = topbar.createDiv({ cls: 'hwm_toolbar hwm_editor-toolbar' });
 		if (isDark) toolbar.classList.add('hwm_toolbar--dark');
 
-
-		if (isMobile) {
-			toolbar.classList.add('hwm_toolbar--compact');
-			const toggleBtn = this.mkBtn(toolbar, 'chevron-down', 'Mostra tutti');
-			toggleBtn.classList.add('hwm_toggle-btn');
-			toggleBtn.addEventListener('click', () => {
-				const compact = toolbar.classList.toggle('hwm_toolbar--compact');
-				updateColorSizes(compact);
-				toggleBtn.innerHTML = ICONS[compact ? 'chevron-down' : 'chevron-up'] ?? '';
-			});
-		}
-
-		const penBtn = this.mkBtn(toolbar, 'pencil', 'Penna');
+		const penBtn = this.mkBtn(toolbar, 'pencil', 'btn_pen');
 		penBtn.classList.add('hwm_active', 'hwm_pen-btn');
-		const eraserBtn = this.mkBtn(toolbar, 'eraser', 'Gomma');
+		const eraserBtn = this.mkBtn(toolbar, 'eraser', 'btn_eraser');
 		eraserBtn.classList.add('hwm_eraser-btn');
 		toolbar.createDiv({ cls: 'hwm_separator' });
 
@@ -551,15 +520,6 @@ export class DrawingModal extends Modal {
 			colorBtns.push(btn);
 		}
 		toolbar.createDiv({ cls: 'hwm_separator' });
-
-		const updateColorSizes = (compact: boolean) => {
-			colorBtns.forEach(b => {
-				const sz = (!compact || b.classList.contains('hwm_active')) ? '22px' : '0';
-				b.style.setProperty('min-width', sz, 'important');
-				b.style.setProperty('min-height', sz, 'important');
-			});
-		};
-		if (isMobile) updateColorSizes(true);
 
 		// Listener bgMode: aggiorna toolbar, pallini colore e sfondo canvas al cambio tema.
 		const lightColors = ['#000000', '#1e40af', '#dc2626', '#16a34a'];
@@ -586,20 +546,25 @@ export class DrawingModal extends Modal {
 		};
 		this.plugin.bgModeListeners.add(this.bgModeListener);
 
-		const undoBtn = this.mkBtn(toolbar, 'rotate-ccw', 'Annulla');
+		const undoBtn = this.mkBtn(toolbar, 'rotate-ccw', 'btn_undo');
 		undoBtn.classList.add('hwm_undo-btn');
-		const redoBtn = this.mkBtn(toolbar, 'rotate-cw', 'Ripristina');
+		const redoBtn = this.mkBtn(toolbar, 'rotate-cw', 'btn_redo');
 		redoBtn.classList.add('hwm_redo-btn');
-		const clearBtn = this.mkBtn(toolbar, 'trash', 'Cancella tutto');
+		const clearBtn = this.mkBtn(toolbar, 'trash', 'btn_clear');
 		clearBtn.classList.add('hwm_clear-btn');
 		toolbar.createDiv({ cls: 'hwm_separator' });
 
-		const convertBtn = this.mkBtn(toolbar, 'file-text', 'Converti in Markdown');
+		const convertBtn = this.mkBtn(toolbar, 'file-text', 'btn_convert');
 		convertBtn.classList.add('hwm_convert-btn');
-		const saveBtn = this.mkBtn(toolbar, 'save', 'Salva');
+		const saveBtn = this.mkBtn(toolbar, 'save', 'btn_save');
 		saveBtn.classList.add('hwm_save-btn');
-		const deleteBtn = this.mkBtn(toolbar, 'x', 'Elimina riquadro');
+		const deleteBtn = this.mkBtn(toolbar, 'file-x', 'btn_delete');
 		deleteBtn.classList.add('hwm_delete-btn');
+
+		// Bottone chiudi (X): nel topbar, posizionata a destra via CSS absolute
+		const closeBtn = this.mkBtn(topbar, 'x', 'btn_close');
+		closeBtn.classList.add('hwm_close-btn');
+		closeBtn.addEventListener('click', () => this.close());
 
 		const scrollWrap = el.createDiv({ cls: 'hwm_editor-scroll' });
 		const canvasWrap = scrollWrap.createDiv({ cls: 'hwm_canvas-wrap' });
@@ -694,14 +659,64 @@ export class DrawingModal extends Modal {
 		} catch (e: unknown) { new Notice('Errore OCR: ' + (e instanceof Error ? e.message : String(e))); }
 	}
 
+	// Overlay di conferma inline: nessun Modal annidato → nessun furto di focus
+	private showDeleteConfirm(): Promise<boolean> {
+		return new Promise(resolve => {
+			const overlay = this.contentEl.createDiv({ cls: 'hwm_confirm-overlay' });
+			overlay.createEl('span', { text: t('confirm_delete'), cls: 'hwm_confirm-msg' });
+			const okBtn = overlay.createEl('button', { text: t('confirm_ok'), cls: 'mod-warning' });
+			const cancelBtn = overlay.createEl('button', { text: t('confirm_cancel') });
+			okBtn.addEventListener('click', () => { overlay.remove(); resolve(true); });
+			cancelBtn.addEventListener('click', () => { overlay.remove(); resolve(false); });
+			okBtn.focus();
+		});
+	}
+
 	private async doDelete() {
-		if (!confirm('Eliminare questo riquadro handwriting e il file SVG associato?')) return;
+		if (!await this.showDeleteConfirm()) return;
 		if (this.canvas) { this.canvas.destroy(); this.canvas = null; }
+
+		const srcPath = this.sourcePath;
+		const ws = this.app.workspace;
+		let focusDone = false;
+
+		// Funzione di focus: aspetta 300ms dopo che vault.modify ha sparato,
+		// in modo da dare all'editor il tempo di completare il re-render del documento.
+		const doFocus = () => {
+			if (focusDone) return;
+			focusDone = true;
+			setTimeout(() => {
+				let mdView = ws.getActiveViewOfType(MarkdownView);
+				if (!mdView || mdView.file?.path !== srcPath) {
+					const leaf = ws.getLeavesOfType('markdown')
+						.find(l => (l.view as MarkdownView).file?.path === srcPath);
+					if (leaf) ws.setActiveLeaf(leaf, { focus: true });
+					mdView = ws.getActiveViewOfType(MarkdownView);
+				}
+				// Focus diretto sul contenteditable CM6
+				const cm = mdView?.contentEl.querySelector('.cm-content') as HTMLElement;
+				cm?.focus();
+			}, 300);
+		};
+
+		// Registra il listener PRIMA di modificare il file, così non perdiamo l'evento.
+		// vault.on('modify') scatta con certezza quando removeCodeBlock() scrive il file.
+		const ref = this.app.vault.on('modify', (file) => {
+			if (file.path === srcPath) {
+				this.app.vault.offref(ref);
+				doFocus();
+			}
+		});
+
 		await this.removeCodeBlock();
 		const svgFile = this.app.vault.getAbstractFileByPath(this.svgPath);
 		if (svgFile instanceof TFile) await this.app.vault.delete(svgFile);
+
+		// Fallback: se vault.modify non spara entro 3s (caso anomalo), forza comunque il focus
+		setTimeout(() => { this.app.vault.offref(ref); doFocus(); }, 3000);
+
 		this.close();
-		new Notice('Riquadro eliminato');
+		new Notice(t('btn_delete'));
 	}
 
 	private async archiveSvg() {
@@ -744,8 +759,10 @@ export class DrawingModal extends Modal {
 		await this.replaceInMd('\n');
 	}
 
-	private mkBtn(parent: HTMLElement, icon: string, title: string): HTMLElement {
-		const btn = parent.createEl('button', { cls: 'hwm_btn', attr: { title } });
+	private mkBtn(parent: HTMLElement, icon: string, key: string): HTMLElement {
+		const label = t(key as any);
+		const btn = parent.createEl('button', { cls: 'hwm_btn', attr: { title: label } });
+		btn.setAttribute('data-hwm-key', key);
 		btn.innerHTML = ICONS[icon] ?? '';
 		return btn;
 	}
@@ -763,3 +780,4 @@ export class DrawingModal extends Modal {
 		});
 	}
 }
+
