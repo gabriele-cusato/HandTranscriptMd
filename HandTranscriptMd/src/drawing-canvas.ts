@@ -71,19 +71,45 @@ export class DrawingCanvas {
 	// Callback debug: se impostato, mostra Notice all'utente per ogni evento IME/touch
 	private debugFn: ((msg: string) => void) | null = null;
 
+	// Device Pixel Ratio: scala il buffer interno per display ad alta densità (Retina, ecc.)
+	private dpr: number;
+	// Dimensione logica CSS del canvas (in pixel logici, non fisici)
+	private logicalWidth: number;
+	private logicalHeight: number;
+	// Spazio coordinate dei tratti salvati: cresce quando il display si allarga, non scende mai.
+	// Garantisce che i tratti rimangano nell'SVG anche dopo una rotazione portrait.
+	private worldWidth: number;
+	// Scala orizzontale di visualizzazione: logicalWidth / worldWidth.
+	// < 1 quando il display è più stretto del mondo (es. portrait dopo landscape): il contenuto
+	// si comprime per mostrare tutto senza tagliare nulla.
+	private viewScale = 1.0;
+	// Mantenuto per compatibilità ma sempre 0 (non usiamo centering, solo scaling)
+	private viewOffsetX = 0;
+
 	constructor(container: HTMLElement, width: number, height: number, defaultHeight: number, mobileMode = false, debugFn: ((msg: string) => void) | null = null) {
-		this.canvas = document.createElement('canvas');
-		this.canvas.width = width;
-		this.canvas.height = height;
+		this.dpr = window.devicePixelRatio || 1;
+		this.worldWidth   = width;
+		this.logicalWidth  = width;
+		this.logicalHeight = height;
 		this.defaultHeight = defaultHeight;
 		this.mobileMode = mobileMode;
 		this.debugFn = debugFn;
+
+		this.canvas = document.createElement('canvas');
+		// Dimensione CSS: pixel logici → il browser mostra il canvas a questa dimensione
+		this.canvas.style.width  = width  + 'px';
+		this.canvas.style.height = height + 'px';
+		// Buffer interno: pixel fisici moltiplicati per il DPR → nessuna pixelazione
+		this.canvas.width  = Math.round(width  * this.dpr);
+		this.canvas.height = Math.round(height * this.dpr);
 		this.canvas.classList.add('hwm_canvas');
 		// touch-action: none sul canvas previene scroll/zoom durante il disegno
 		this.canvas.style.setProperty('touch-action', 'none', 'important');
 		container.appendChild(this.canvas);
 
 		this.ctx = this.canvas.getContext('2d')!;
+		// Scala il context: da questo punto tutte le coordinate ctx sono in pixel logici
+		this.ctx.scale(this.dpr, this.dpr);
 		this.clearBackground();
 
 		// Stato iniziale nella history (canvas vuoto)
@@ -104,6 +130,26 @@ export class DrawingCanvas {
 	onChange(cb: () => void) { this.changeCb = cb; }
 	// Registra callback per quando l'altezza cambia (utile per auto-scroll nell'overlay)
 	onResize(cb: () => void) { this.resizeCb = cb; }
+
+	// Adatta il canvas alla larghezza di display indicata (rotazione schermo, apertura modal).
+	// - Se il display è più largo del mondo attuale → worldWidth cresce (nuova area disegnabile).
+	// - Se il display è più stretto → worldWidth resta invariato; i tratti vengono compressi
+	//   orizzontalmente (viewScale < 1) per mostrare tutto senza tagliare nulla nel SVG.
+	setDisplayWidth(displayWidth: number) {
+		if (displayWidth === this.logicalWidth) return;
+		if (displayWidth > this.worldWidth) {
+			// Espansione: il mondo si allarga con il display
+			this.worldWidth = displayWidth;
+		}
+		// Aggiorna larghezza logica e fattore di scala
+		this.logicalWidth = displayWidth;
+		this.viewScale    = this.logicalWidth / this.worldWidth;
+		this.canvas.style.width = displayWidth + 'px';
+		// Cambiare canvas.width resetta il context → ri-applicare la scala DPR
+		this.canvas.width = Math.round(displayWidth * this.dpr);
+		this.ctx.scale(this.dpr, this.dpr);
+		this.redraw();
+	}
 	// Abilita scroll manuale con il dito sul canvas.
 	// touch-action resta 'none' (la penna non trigga scroll del browser),
 	// il dito scrolla il container via JS.
@@ -143,8 +189,9 @@ export class DrawingCanvas {
 	setLineWidth(w: number) { this.lineWidth = w; }
 
 	getStrokes(): Stroke[] { return [...this.strokes]; }
-	getWidth(): number { return this.canvas.width; }
-	getHeight(): number { return this.canvas.height; }
+	// Ritorna le dimensioni nel sistema di coordinate mondo (usato per l'SVG viewBox)
+	getWidth(): number  { return this.worldWidth; }
+	getHeight(): number { return this.logicalHeight; }
 
 	setBackground(bgColor: string, lineColor: string) {
 		this.bgColor = bgColor;
@@ -195,7 +242,11 @@ export class DrawingCanvas {
 
 	resizeHeight(newHeight: number) {
 		if (newHeight < 100) return;
-		this.canvas.height = newHeight;
+		this.logicalHeight = newHeight;
+		this.canvas.style.height = newHeight + 'px';
+		// canvas.height resetta il context → ri-applicare la scala DPR
+		this.canvas.height = Math.round(newHeight * this.dpr);
+		this.ctx.scale(this.dpr, this.dpr);
 		this.redraw();
 	}
 
@@ -298,15 +349,16 @@ export class DrawingCanvas {
 		// Se un'animazione è già in corso non lanciarne un'altra:
 		// ripartire da un'altezza intermedia causerebbe un effetto di restringimento.
 		if (this.animFrameId !== null) return;
-		if (pt.y > this.canvas.height - this.EXPAND_MARGIN) {
-			const newHeight = this.canvas.height + this.EXPAND_AMOUNT;
-			this.animateHeight(newHeight);
+		// Confronto in pixel logici: pt.y è in coordinate mondo, logicalHeight è logica
+		if (pt.y > this.logicalHeight - this.EXPAND_MARGIN) {
+			const newLogicalH = this.logicalHeight + this.EXPAND_AMOUNT;
+			this.animateHeight(newLogicalH);
 		}
 	}
 
-	private animateHeight(targetHeight: number) {
-		const startHeight = this.canvas.height;
-		if (startHeight === targetHeight) return;
+	private animateHeight(targetLogicalH: number) {
+		const startLogicalH = this.logicalHeight;
+		if (startLogicalH === targetLogicalH) return;
 
 		if (this.animFrameId !== null) {
 			cancelAnimationFrame(this.animFrameId);
@@ -320,9 +372,14 @@ export class DrawingCanvas {
 			const elapsed = now - startTime;
 			const progress = Math.min(elapsed / duration, 1);
 			const eased = 1 - Math.pow(1 - progress, 3);
-			const h = Math.round(startHeight + (targetHeight - startHeight) * eased);
+			// Altezza in pixel logici per questa frame
+			const h = Math.round(startLogicalH + (targetLogicalH - startLogicalH) * eased);
 
-			this.canvas.height = h;
+			this.logicalHeight = h;
+			this.canvas.style.height = h + 'px';
+			// canvas.height è in pixel fisici; cambiarlo resetta il context → ri-scalare
+			this.canvas.height = Math.round(h * this.dpr);
+			this.ctx.scale(this.dpr, this.dpr);
 			this.redraw();
 			if (this.currentStroke) {
 				this.drawFullStroke(this.currentStroke);
@@ -344,11 +401,10 @@ export class DrawingCanvas {
 
 	private eventToPoint(e: PointerEvent): Point {
 		const rect = this.canvas.getBoundingClientRect();
-		const scaleX = this.canvas.width / rect.width;
-		const scaleY = this.canvas.height / rect.height;
+		// Divide per viewScale per tornare alle coordinate mondo (invarianti al cambio orientamento)
 		return {
-			x: (e.clientX - rect.left) * scaleX,
-			y: (e.clientY - rect.top) * scaleY,
+			x: (e.clientX - rect.left) / this.viewScale,
+			y: (e.clientY - rect.top),
 			pressure: e.pressure > 0 ? e.pressure : 0.5,
 		};
 	}
@@ -411,8 +467,9 @@ export class DrawingCanvas {
 	/* --- Rendering --- */
 
 	private clearBackground() {
-		const w = this.canvas.width;
-		const h = this.canvas.height;
+		// Usa pixel logici: ctx.scale(dpr, dpr) è già applicato nel constructor/resize
+		const w = this.logicalWidth;
+		const h = this.logicalHeight;
 
 		this.ctx.fillStyle = this.bgColor;
 		this.ctx.fillRect(0, 0, w, h);
@@ -439,6 +496,9 @@ export class DrawingCanvas {
 		if (pts.length < 2) return;
 
 		const ctx = this.ctx;
+		// Scala orizzontale: comprime i tratti mondo nello spazio logico disponibile
+		ctx.save();
+		ctx.scale(this.viewScale, 1.0);
 		ctx.strokeStyle = stroke.color;
 		ctx.lineWidth = stroke.width;
 		ctx.lineCap = 'round';
@@ -460,6 +520,7 @@ export class DrawingCanvas {
 			ctx.lineTo(last.x, last.y);
 		}
 		ctx.stroke();
+		ctx.restore();
 	}
 
 	private drawSegment(stroke: Stroke) {
@@ -467,6 +528,9 @@ export class DrawingCanvas {
 		if (pts.length < 2) return;
 
 		const ctx = this.ctx;
+		// Stessa scala di drawFullStroke per coerenza durante il disegno live
+		ctx.save();
+		ctx.scale(this.viewScale, 1.0);
 		ctx.strokeStyle = stroke.color;
 		ctx.lineWidth = stroke.width;
 		ctx.lineCap = 'round';
@@ -490,5 +554,6 @@ export class DrawingCanvas {
 			ctx.quadraticCurveTo(curr.x, curr.y, endX, endY);
 		}
 		ctx.stroke();
+		ctx.restore();
 	}
 }

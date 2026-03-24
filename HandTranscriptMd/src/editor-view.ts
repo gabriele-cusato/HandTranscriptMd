@@ -47,6 +47,8 @@ export class DrawingEditorView extends ItemView {
 	private saveTimer: ReturnType<typeof setTimeout> | null = null;
 	// Listener per aggiornare la classe dark al cambio bgMode
 	private bgModeListener: ((bgMode: string) => void) | null = null;
+	// ResizeObserver per adattare il canvas al layout reale (inclusa rotazione schermo)
+	private displayRo: ResizeObserver | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: HandwritingPlugin) {
 		super(leaf);
@@ -85,6 +87,9 @@ export class DrawingEditorView extends ItemView {
 			this.plugin.bgModeListeners.delete(this.bgModeListener);
 			this.bgModeListener = null;
 		}
+		// Ferma l'osservatore di resize (orientamento schermo)
+		this.displayRo?.disconnect();
+		this.displayRo = null;
 	}
 
 	/* ---------- Costruisce la UI dell'editor ---------- */
@@ -194,14 +199,17 @@ export class DrawingEditorView extends ItemView {
 		const canvasWrap = scrollWrap.createDiv({ cls: 'hwm_canvas-wrap' });
 
 		// Carica tratti dal file SVG
-		const { strokes, canvasHeight: savedH } = await this.loadStrokes();
+		const { strokes, canvasWidth: savedW, canvasHeight: savedH } = await this.loadStrokes();
 		const { canvasWidth, canvasHeight } = this.plugin.settings;
+		// Usa la larghezza salvata nel viewBox SVG come worldWidth iniziale: garantisce che
+		// setDisplayWidth() non tagli i tratti disegnati in sessioni precedenti più larghe.
+		const w = savedW ?? canvasWidth;
 		const h = savedH ?? canvasHeight;
 		const debugFn = this.plugin.settings.debugMode
 			? (msg: string) => new Notice(msg, 3000) : null;
 
 		// Crea il canvas
-		this.canvas = new DrawingCanvas(canvasWrap, canvasWidth, h, canvasHeight, isMobile, debugFn);
+		this.canvas = new DrawingCanvas(canvasWrap, w, h, canvasHeight, isMobile, debugFn);
 		this.canvas.setBackground(bgColor, lineColor);
 		this.canvas.setColor(colors[0]!);
 		// Su mobile: dito = scroll, penna = disegno
@@ -215,6 +223,18 @@ export class DrawingEditorView extends ItemView {
 			}));
 			this.canvas.loadStrokes(remapped);
 		}
+
+		// Adatta il canvas alla larghezza reale del container e la mantiene sincronizzata
+		// ad ogni cambio di orientamento (portrait ↔ landscape).
+		// L'observer resta attivo per tutta la vita della tab; viene rimosso in onClose().
+		// Se clientWidth è ancora 0 (tab non renderizzata), salta e riprova al prossimo evento.
+		this.displayRo = new ResizeObserver(() => {
+			const displayW = scrollWrap.clientWidth || el.clientWidth;
+			if (displayW === 0) return;
+			this.canvas?.setDisplayWidth(displayW);
+		});
+		this.displayRo.observe(scrollWrap);
+		this.displayRo.observe(el);
 
 		// Resize handle (visibile ma non interattivo)
 		const handle = scrollWrap.createDiv({ cls: 'hwm_resize-handle hwm_resize-handle--disabled' });
@@ -268,15 +288,21 @@ export class DrawingEditorView extends ItemView {
 
 	/* ---------- File I/O ---------- */
 
-	private async loadStrokes(): Promise<{ strokes: Stroke[]; canvasHeight: number | null }> {
+	private async loadStrokes(): Promise<{ strokes: Stroke[]; canvasWidth: number | null; canvasHeight: number | null }> {
 		const file = this.app.vault.getAbstractFileByPath(this.svgPath);
 		if (file instanceof TFile) {
 			const content = await this.app.vault.read(file);
 			const strokes = parseSvgStrokes(content);
-			const m = content.match(/viewBox="0 0 \d+ (\d+)"/);
-			return { strokes, canvasHeight: m ? parseInt(m[1] ?? '0') : null };
+			// Legge sia la larghezza che l'altezza dal viewBox per ripristinare
+			// il worldWidth originale (evita il taglio dei tratti oltre settings.canvasWidth)
+			const m = content.match(/viewBox="0 0 (\d+) (\d+)"/);
+			return {
+				strokes,
+				canvasWidth:  m ? parseInt(m[1] ?? '0') : null,
+				canvasHeight: m ? parseInt(m[2] ?? '0') : null,
+			};
 		}
-		return { strokes: [], canvasHeight: null };
+		return { strokes: [], canvasWidth: null, canvasHeight: null };
 	}
 
 	private async saveSvg() {
@@ -569,12 +595,13 @@ export class DrawingModal extends Modal {
 		const scrollWrap = el.createDiv({ cls: 'hwm_editor-scroll' });
 		const canvasWrap = scrollWrap.createDiv({ cls: 'hwm_canvas-wrap' });
 
-		const { strokes, canvasHeight: savedH } = await this.loadStrokes();
+		const { strokes, canvasWidth: savedW, canvasHeight: savedH } = await this.loadStrokes();
 		const { canvasWidth, canvasHeight } = this.plugin.settings;
+		const w = savedW ?? canvasWidth;
 		const h = savedH ?? canvasHeight;
 		const debugFn = this.plugin.settings.debugMode ? (msg: string) => new Notice(msg, 3000) : null;
 
-		this.canvas = new DrawingCanvas(canvasWrap, canvasWidth, h, canvasHeight, isMobile, debugFn);
+		this.canvas = new DrawingCanvas(canvasWrap, w, h, canvasHeight, isMobile, debugFn);
 		this.canvas.setBackground(bgColor, lineColor);
 		this.canvas.setColor(colors[0]!);
 		if (isMobile) this.canvas.allowFingerScroll(scrollWrap);
@@ -583,6 +610,15 @@ export class DrawingModal extends Modal {
 			const remapped = strokes.map(s => ({ ...s, color: remapStrokeColor(s.color, this.plugin.settings.bgMode) }));
 			this.canvas.loadStrokes(remapped);
 		}
+
+		// Espande il canvas a tutta la larghezza del modal (elimina le bande laterali).
+		// requestAnimationFrame garantisce che il layout del modal sia pronto prima di misurarlo.
+		requestAnimationFrame(() => {
+			const displayW = scrollWrap.clientWidth;
+			if (this.canvas && displayW > canvasWidth) {
+				this.canvas.setDisplayWidth(displayW);
+			}
+		});
 
 		const handle = scrollWrap.createDiv({ cls: 'hwm_resize-handle hwm_resize-handle--disabled' });
 		handle.createEl('span', { text: '⋯' });
@@ -617,14 +653,18 @@ export class DrawingModal extends Modal {
 		});
 	}
 
-	private async loadStrokes(): Promise<{ strokes: Stroke[]; canvasHeight: number | null }> {
+	private async loadStrokes(): Promise<{ strokes: Stroke[]; canvasWidth: number | null; canvasHeight: number | null }> {
 		const file = this.app.vault.getAbstractFileByPath(this.svgPath);
 		if (file instanceof TFile) {
 			const content = await this.app.vault.read(file);
-			const m = content.match(/viewBox="0 0 \d+ (\d+)"/);
-			return { strokes: parseSvgStrokes(content), canvasHeight: m ? parseInt(m[1] ?? '0') : null };
+			const m = content.match(/viewBox="0 0 (\d+) (\d+)"/);
+			return {
+				strokes: parseSvgStrokes(content),
+				canvasWidth:  m ? parseInt(m[1] ?? '0') : null,
+				canvasHeight: m ? parseInt(m[2] ?? '0') : null,
+			};
 		}
-		return { strokes: [], canvasHeight: null };
+		return { strokes: [], canvasWidth: null, canvasHeight: null };
 	}
 
 	private async saveSvg() {

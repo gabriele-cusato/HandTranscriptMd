@@ -5,6 +5,29 @@ Per istruzioni, architettura e task aperti vedi `CLAUDE.md`.
 
 ---
 
+## ✅ Task completati (sessione 2026-03-24 — parte 2)
+
+### Canvas a tutto schermo nell'overlay (DPR + viewScale + fix portrait) — IMPLEMENTATO ✅
+
+**Obiettivo**: eliminare le bande laterali vuote nell'overlay di disegno (modal Windows e tab Android), senza pixelazione e con supporto alla rotazione portrait/landscape.
+
+**Architettura introdotta** (`src/drawing-canvas.ts`):
+- `dpr` — device pixel ratio; il buffer interno del canvas è `logicalWidth * dpr` fisici, ma il contesto (`ctx.scale(dpr, dpr)`) lavora sempre in pixel logici → nessuna pixelazione su display Retina.
+- `logicalWidth/Height` — dimensione CSS effettiva del canvas; aggiornata ad ogni cambio di orientamento.
+- `worldWidth` — spazio coordinate dei tratti salvati nel SVG. **Non scende mai**: se l'utente disegna in landscape (1280px) e poi passa a portrait (720px), `worldWidth` rimane 1280 così il SVG non perde tratti.
+- `viewScale = logicalWidth / worldWidth` — fattore di scala orizzontale. In portrait (720/1280 ≈ 0.56) tutto il contenuto viene compresso per mostrarlo senza tagliare. `eventToPoint()` divide la coordinata CSS per `viewScale` per tornare alle coordinate mondo; `drawFullStroke/drawSegment` applicano `ctx.scale(viewScale, 1.0)` prima di disegnare.
+- `setDisplayWidth(w)` — chiamato dal `ResizeObserver` ad ogni cambio orientamento: se `w > worldWidth` espande il mondo; se `w < worldWidth` aggiorna solo `logicalWidth` e `viewScale`.
+- Ogni modifica di `canvas.width/height` resetta il contesto → `ctx.scale(dpr, dpr)` viene ri-applicato subito dopo.
+
+**Windows — `DrawingModal`** (`src/editor-view.ts`): un `requestAnimationFrame` dopo la costruzione misura `scrollWrap.clientWidth` e chiama `setDisplayWidth`.
+
+**Android — `DrawingEditorView`** (`src/editor-view.ts`): un `ResizeObserver` su `scrollWrap` e `el` chiama `setDisplayWidth` ogni volta che il layout cambia (inclusa rotazione). Il riferimento è salvato in `this.displayRo` e disconnesso in `onClose()`.
+
+**Bug fix — SVG tagliato alla riapertura in portrait** (`src/editor-view.ts`): entrambe le `loadStrokes()` (in `DrawingEditorView` e `DrawingModal`) leggono ora **anche la larghezza** dal `viewBox` dell'SVG (`viewBox="0 0 W H"`). Il canvas viene creato con `worldWidth = savedW ?? settings.canvasWidth`, così riaprendolo in portrait non si perde il `worldWidth` della sessione precedente.
+**File**: `src/drawing-canvas.ts`, `src/editor-view.ts`.
+
+---
+
 ## ✅ Task completati (sessione 2026-03-24)
 
 ### Fix focus perso dopo `window.confirm()` — RISOLTO ✅
