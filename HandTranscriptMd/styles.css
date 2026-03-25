@@ -732,12 +732,18 @@
 	min-width: 0;
 }
 
-/* Input e select: larghezza max fissa, non crescono oltre */
+/* Input e select brevi (cartella, numeri, lingua): non crescono oltre 160px */
 .hwm_settings .setting-item-control input[type="text"],
-.hwm_settings .setting-item-control input[type="password"],
 .hwm_settings .setting-item-control select {
 	max-width: 160px;
 	min-width: 60px;
+	width: auto;
+}
+
+/* Campo password (chiave API Gemini): più largo perché la chiave è ~39 caratteri */
+.hwm_settings .setting-item-control input[type="password"] {
+	max-width: 240px;
+	min-width: 120px;
 	width: auto;
 }
 
