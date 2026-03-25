@@ -20,17 +20,19 @@ import {
 
 // Icone SVG inline (stile Lucide 24×24)
 const ICONS: Record<string, string> = {
-	'file-text': `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>`,
-	'x': `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`,
-	'chevron-up': `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>`,
-	'pencil': `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>`,
+	'file-text':   `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>`,
+	'x':           `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`,
+	'file-x':      `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="9.5" y1="12.5" x2="14.5" y2="17.5"/><line x1="14.5" y1="12.5" x2="9.5" y2="17.5"/></svg>`,
+	'chevron-up':  `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>`,
+	'pencil':      `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>`,
 };
 import type HandwritingPlugin from './main';
+import { t } from './i18n';
 import { Stroke } from './drawing-canvas';
-import { strokesToSvg, parseSvgStrokes, generateId } from './svg-utils';
-import { getEffectiveBgColor, getEffectiveLineColor, remapStrokeColor, BgMode } from './settings';
+import { strokesToSvg, parseSvgStrokes, generateId, svgToBase64Png, archiveSvgFile } from './svg-utils';
+import { getEffectiveBgColor, getEffectiveLineColor, remapStrokeColor, BgMode, resolveIsDark } from './settings';
 import { getRecognizer } from './recognizer';
-import { parseMarkdown } from './md-parser';
+import { parseHandwritingToMarkdown } from './md-parser';
 import { VIEW_TYPE_HANDWRITING, DrawingEditorView, DrawingModal } from './editor-view';
 
 // Dati JSON salvati dentro il code block ```handwriting (formato legacy)
@@ -114,8 +116,8 @@ function setupMutationObserver(plugin: HandwritingPlugin) {
 		if (!svgPath.includes('_handwriting/') || !svgPath.endsWith('.svg')) return;
 
 		const filename = svgPath.split('/').pop() ?? '';
-		const embedId = filename.replace('.svg', '');
-		if (!embedId.startsWith('hw_')) return;
+		const embedId  = filename.replace('.svg', '');
+		if (!embedId.startsWith('hw_') && !embedId.startsWith('HTMD_')) return;
 
 		// Se Obsidian non ha ancora caricato l'immagine (classe image-embed
 		// assente), riprova tra 150 ms — il caricamento è asincrono.
@@ -248,13 +250,13 @@ function showLegacyPreview(
 	const btnBar = container.createDiv({ cls: 'hwm_inline-buttons' });
 	if (isDark) btnBar.classList.add('hwm_inline-buttons--dark');
 
-	const deleteBtn = createBtn(btnBar, 'x', 'Elimina riquadro');
+	const deleteBtn = createBtn(btnBar, 'file-x', 'Elimina riquadro');
 	deleteBtn.classList.add('hwm_delete-btn');
 
 	const convertBtn = createBtn(btnBar, 'file-text', 'Converti in Markdown');
 	convertBtn.classList.add('hwm_convert-btn');
 
-	const collapseBtn = createBtn(btnBar, 'chevron-up', 'Comprimi');
+	const collapseBtn = createBtn(btnBar, 'chevron-up', 'btn_collapse');
 	collapseBtn.classList.add('hwm_collapse-btn');
 
 	// --- Preview SVG via CSS background-image (nessun <img> dentro cm-content) ---
@@ -282,12 +284,14 @@ function showLegacyPreview(
 			preview.classList.remove('hwm_collapsed');
 			preview.style.maxHeight = '';
 			collapseBtn.classList.remove('hwm_rotated');
-			collapseBtn.title = 'Comprimi';
+			collapseBtn.title = t('btn_collapse');
+			collapseBtn.setAttribute('data-hwm-key', 'btn_collapse');
 		} else {
 			preview.classList.add('hwm_collapsed');
 			preview.style.maxHeight = collapsedHeight + 'px';
 			collapseBtn.classList.add('hwm_rotated');
-			collapseBtn.title = 'Espandi';
+			collapseBtn.title = t('btn_expand');
+			collapseBtn.setAttribute('data-hwm-key', 'btn_expand');
 		}
 	});
 
@@ -298,7 +302,7 @@ function showLegacyPreview(
 	convertBtn.addEventListener('click', async (e) => {
 		e.stopPropagation();
 		if (!currentSvgContent || currentStrokes.length === 0) {
-			new Notice('Nessun tratto da convertire');
+			new Notice(t('error_no_strokes'));
 			return;
 		}
 		await doConvert(currentSvgContent, data, ctx, plugin);
@@ -307,7 +311,7 @@ function showLegacyPreview(
 	// Elimina
 	deleteBtn.addEventListener('click', async (e) => {
 		e.stopPropagation();
-		if (!confirm('Eliminare questo riquadro handwriting e il file SVG associato?')) return;
+		if (!await showInlineConfirm(container, t('confirm_delete'))) return;
 		await removeLegacyEmbed(ctx, data, plugin);
 	});
 }
@@ -325,8 +329,28 @@ function renderPreviewContent(preview: HTMLElement, svgContent: string | null) {
 		const svgH = m ? parseInt(m[2]!) : 300;
 		div.style.paddingBottom = (svgH / svgW * 100) + '%';
 	} else {
-		preview.createDiv({ cls: 'hwm_placeholder', text: 'Usa il bottone matita in alto a destra per disegnare' });
+		preview.createDiv({ cls: 'hwm_placeholder', text: t('notice_placeholder_draw') });
 	}
+}
+
+/* =============================================
+   Pipeline OCR comune (wiki + legacy)
+   ============================================= */
+
+// Esegue il riconoscimento OCR su un SVG e restituisce il testo markdown.
+// Lancia eccezione in caso di errore — il chiamante decide se catturarla o propagarla.
+async function runOcrPipeline(svgContent: string, plugin: HandwritingPlugin): Promise<string> {
+	new Notice(t('notice_recognizing'));
+	const svgEl = new DOMParser()
+		.parseFromString(svgContent, 'image/svg+xml')
+		.documentElement as unknown as SVGElement;
+	const base64     = await svgToBase64Png(svgEl);
+	const recognizer = getRecognizer(plugin.settings.geminiApiKey, plugin.settings.ocrLanguages);
+	const rawText    = await recognizer.recognize(base64);
+	if (!rawText.trim()) throw new Error(t('error_no_text'));
+	// In modalità debug mostra il testo grezzo restituito da Gemini (prima del parsing)
+	if (plugin.settings.debugMode) new Notice(`[DEBUG] Testo grezzo Gemini:\n${rawText}`, 30000);
+	return parseHandwritingToMarkdown(rawText);
 }
 
 /* =============================================
@@ -340,18 +364,10 @@ async function doConvertWiki(
 	plugin: HandwritingPlugin
 ) {
 	// Lancia eccezione in caso di errore (il chiamante decide se mostrare Notice o propagare)
-	new Notice('Riconoscimento in corso…');
-	const parser = new DOMParser();
-	const svgEl = parser.parseFromString(svgContent, 'image/svg+xml')
-		.documentElement as unknown as SVGElement;
-	const base64 = await svgToBase64Png(svgEl);
-	const recognizer = getRecognizer(plugin.settings.geminiApiKey, plugin.settings.ocrLanguages);
-	const rawText = await recognizer.recognize(base64);
-	if (!rawText.trim()) throw new Error('Nessun testo riconosciuto');
-	const markdown = parseMarkdown(rawText);
-	await archiveSvgByPath(svgPath, plugin);
+	const markdown = await runOcrPipeline(svgContent, plugin);
+	await archiveSvgFile(svgPath, plugin);
 	await replaceWikiEmbedWithMarkdown(svgPath, markdown, sourcePath, plugin);
-	new Notice('Conversione completata!');
+	new Notice(t('notice_converted'));
 }
 
 /* =============================================
@@ -365,21 +381,12 @@ async function doConvert(
 	plugin: HandwritingPlugin
 ) {
 	try {
-		new Notice('Riconoscimento in corso…');
-		const parser = new DOMParser();
-		const svgEl = parser.parseFromString(svgContent, 'image/svg+xml')
-			.documentElement as unknown as SVGElement;
-		const base64 = await svgToBase64Png(svgEl);
-		const recognizer = getRecognizer(plugin.settings.geminiApiKey, plugin.settings.ocrLanguages);
-		const rawText = await recognizer.recognize(base64);
-		if (!rawText.trim()) { new Notice('Nessun testo riconosciuto'); return; }
-
-		const markdown = parseMarkdown(rawText);
-		await archiveSvg(data, plugin);
+		const markdown = await runOcrPipeline(svgContent, plugin);
+		await archiveSvgFile(data.svg, plugin);
 		await replaceEmbedWithMarkdown(ctx, data, markdown, plugin);
-		new Notice('Conversione completata!');
+		new Notice(t('notice_converted'));
 	} catch (e: unknown) {
-		new Notice('Errore OCR: ' + (e instanceof Error ? e.message : String(e)));
+		new Notice(t('error_ocr') + (e instanceof Error ? e.message : String(e)));
 	}
 }
 
@@ -434,7 +441,7 @@ async function removeWikiEmbed(
 	plugin: HandwritingPlugin
 ) {
 	const mdFile = plugin.app.vault.getAbstractFileByPath(sourcePath);
-	if (!(mdFile instanceof TFile)) { new Notice('File markdown non trovato'); return; }
+	if (!(mdFile instanceof TFile)) { new Notice(t('error_file_not_found')); return; }
 
 	const content = await plugin.app.vault.read(mdFile);
 	const updated = content.replace(wikiEmbedRegex(svgPath), '\n');
@@ -444,7 +451,7 @@ async function removeWikiEmbed(
 	const svgFile = plugin.app.vault.getAbstractFileByPath(svgPath);
 	if (svgFile instanceof TFile) await plugin.app.vault.delete(svgFile);
 
-	new Notice('Riquadro eliminato');
+	new Notice(t('notice_deleted'));
 }
 
 // Rimuove il code block legacy dal .md e cancella il file SVG
@@ -454,7 +461,7 @@ async function removeLegacyEmbed(
 	plugin: HandwritingPlugin
 ) {
 	const mdFile = plugin.app.vault.getAbstractFileByPath(ctx.sourcePath);
-	if (!(mdFile instanceof TFile)) { new Notice('File markdown non trovato'); return; }
+	if (!(mdFile instanceof TFile)) { new Notice(t('error_file_not_found')); return; }
 
 	const content = await plugin.app.vault.read(mdFile);
 	const updated = content.replace(codeBlockRegex(data.id), '\n');
@@ -463,37 +470,7 @@ async function removeLegacyEmbed(
 	const svgFile = plugin.app.vault.getAbstractFileByPath(data.svg);
 	if (svgFile instanceof TFile) await plugin.app.vault.delete(svgFile);
 
-	new Notice('Riquadro eliminato');
-}
-
-/* =============================================
-   Archivia SVG dopo conversione
-   ============================================= */
-
-async function archiveSvgByPath(svgPath: string, plugin: HandwritingPlugin) {
-	const svgFile = plugin.app.vault.getAbstractFileByPath(svgPath);
-	if (!(svgFile instanceof TFile)) return;
-	await _moveSvgToConverted(svgFile, plugin);
-}
-
-async function archiveSvg(data: EmbedData, plugin: HandwritingPlugin) {
-	const svgFile = plugin.app.vault.getAbstractFileByPath(data.svg);
-	if (!(svgFile instanceof TFile)) return;
-	await _moveSvgToConverted(svgFile, plugin);
-}
-
-// Sposta il file SVG nella cartella _converted con nome timestamp
-async function _moveSvgToConverted(svgFile: TFile, plugin: HandwritingPlugin) {
-	const now = new Date();
-	const pad = (n: number) => String(n).padStart(2, '0');
-	const ts = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
-		`_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
-
-	const destFolder = `${plugin.settings.svgFolder}/_converted`;
-	if (!plugin.app.vault.getAbstractFileByPath(destFolder)) {
-		await plugin.app.vault.createFolder(destFolder);
-	}
-	await plugin.app.vault.rename(svgFile, `${destFolder}/${ts}.svg`);
+	new Notice(t('notice_deleted'));
 }
 
 /* =============================================
@@ -507,7 +484,7 @@ async function replaceWikiEmbedWithMarkdown(
 	plugin: HandwritingPlugin
 ) {
 	const mdFile = plugin.app.vault.getAbstractFileByPath(sourcePath);
-	if (!(mdFile instanceof TFile)) { new Notice('File markdown non trovato'); return; }
+	if (!(mdFile instanceof TFile)) { new Notice(t('error_file_not_found')); return; }
 
 	const content = await plugin.app.vault.read(mdFile);
 	const updated = content.replace(wikiEmbedRegex(svgPath), '\n' + markdown + '\n');
@@ -521,7 +498,7 @@ async function replaceEmbedWithMarkdown(
 	plugin: HandwritingPlugin
 ) {
 	const mdFile = plugin.app.vault.getAbstractFileByPath(ctx.sourcePath);
-	if (!(mdFile instanceof TFile)) { new Notice('File markdown non trovato'); return; }
+	if (!(mdFile instanceof TFile)) { new Notice(t('error_file_not_found')); return; }
 
 	const content = await plugin.app.vault.read(mdFile);
 	const updated = content.replace(codeBlockRegex(data.id), '\n' + markdown + '\n');
@@ -536,7 +513,7 @@ async function replaceEmbedWithMarkdown(
 export async function insertHandwritingBlock(plugin: HandwritingPlugin) {
 	const view = plugin.app.workspace.getActiveViewOfType(MarkdownView);
 	if (!view) {
-		new Notice('Apri un file markdown prima');
+		new Notice(t('notice_open_md_first'));
 		return;
 	}
 
@@ -592,10 +569,6 @@ function createPortalPanel(
 	sourcePath: string,
 	plugin: HandwritingPlugin
 ) {
-	// Risolve il tema effettivo tenendo conto di 'auto'
-	const resolveIsDark = (bgMode: string) =>
-		bgMode === 'auto' ? document.body.classList.contains('theme-dark') : bgMode === 'dark';
-
 	const isDark = resolveIsDark(plugin.settings.bgMode);
 	const collapsedHeight = plugin.settings.canvasHeight;
 	let isExpanded = true;
@@ -618,7 +591,7 @@ function createPortalPanel(
 	// --- Bottone matita ---
 	// Desktop: apre DrawingModal (overlay fullscreen, senza aprire nuova tab)
 	// Mobile: apre DrawingEditorView in una nuova tab
-	const pencilBtn = createPanelBtn(panel, 'pencil', 'Apri editor disegno');
+	const pencilBtn = createPanelBtn(panel, 'pencil', 'btn_open_editor');
 	pencilBtn.addEventListener('click', async () => {
 		if (Platform.isDesktop) {
 			if (modalOpen) return;
@@ -655,38 +628,76 @@ function createPortalPanel(
 	panel.appendChild(sep);
 
 	// --- Bottone converti in Markdown ---
-	const convertBtn = createPanelBtn(panel, 'file-text', 'Converti in Markdown');
+	const convertBtn = createPanelBtn(panel, 'file-text', 'btn_convert');
 
 	// --- Bottone comprimi/espandi ---
 	// Usa height + overflow:hidden sul container (non max-height sull'<img>):
 	// così l'immagine viene ritagliata verticalmente senza che la larghezza cambi.
 	// Il pannello (position:absolute, top:6px) resta dentro l'area visibile
 	// anche da compresso (collapsedHeight è sempre >> 6px + altezza pannello).
-	const collapseBtn = createPanelBtn(panel, 'chevron-up', 'Comprimi');
+	const collapseBtn = createPanelBtn(panel, 'chevron-up', 'btn_collapse');
 	collapseBtn.classList.add('hwm_collapse-btn');
 
 	// --- Bottone elimina ---
-	const deleteBtn = createPanelBtn(panel, 'x', 'Elimina riquadro');
+	const deleteBtn = createPanelBtn(panel, 'file-x', 'btn_delete');
 	deleteBtn.classList.add('hwm_delete-btn');
 	deleteBtn.addEventListener('click', async () => {
-		if (!confirm('Eliminare questo riquadro handwriting e il file SVG associato?')) return;
+		if (!await showInlineConfirm(container, t('confirm_delete'))) return;
 		await removeWikiEmbed(svgPath, sourcePath, plugin);
 	});
 
 	// --- Funzioni condivise: usate dai bottoni e dal menu globale (⋮ Obsidian) ---
+	// Assicura che l'<img> sia dentro un div.hwm_clip-wrapper.
+	// Animiamo solo il wrapper (non il container span) così il ResizeObserver
+	// di Obsidian Mobile sul container non si attiva e non re-imposta le dimensioni dell'img.
+	// Usiamo img.parentElement come anchor per insertBefore: su Android l'img
+	// potrebbe non essere figlia diretta del container span.
+	const ensureWrapper = (): HTMLElement | null => {
+		let wrapper = container.querySelector('.hwm_clip-wrapper') as HTMLElement | null;
+		if (wrapper) return wrapper;
+		const img = container.querySelector('img');
+		if (!img || !img.parentElement) return null;
+		wrapper = document.createElement('div');
+		wrapper.className = 'hwm_clip-wrapper';
+		img.parentElement.insertBefore(wrapper, img);
+		wrapper.appendChild(img);
+		return wrapper;
+	};
+
 	const doExpand = () => {
 		isExpanded = true;
-		container.style.height = '';
-		container.style.overflow = '';
+		const wrapper = container.querySelector('.hwm_clip-wrapper') as HTMLElement | null;
+		if (wrapper) {
+			// Anima da collapsedHeight verso l'altezza naturale (scrollHeight)
+			wrapper.style.height = wrapper.scrollHeight + 'px';
+			// A transizione finita rimuovi l'altezza esplicita: il wrapper torna flessibile
+			wrapper.addEventListener('transitionend', () => {
+				wrapper.style.height   = '';
+				wrapper.style.overflow = '';
+			}, { once: true });
+		}
+		container.classList.remove('hwm_is-collapsed');
 		collapseBtn.classList.remove('hwm_rotated');
-		collapseBtn.title = 'Comprimi';
+		collapseBtn.title = t('btn_collapse');
+		collapseBtn.setAttribute('data-hwm-key', 'btn_collapse');
 	};
 	const doCollapse = () => {
 		isExpanded = false;
-		container.style.height = collapsedHeight + 'px';
-		container.style.overflow = 'hidden';
+		const wrapper = ensureWrapper();
+		if (wrapper) {
+			wrapper.style.overflow = 'hidden';
+			// Prima forza un'altezza esplicita pari all'altezza attuale (altrimenti
+			// la transizione partirebbe da 'auto' e non si animarebbe)
+			wrapper.style.height = wrapper.scrollHeight + 'px';
+			// Nel frame successivo imposta l'altezza target: la transizione CSS scatta
+			requestAnimationFrame(() => {
+				wrapper.style.height = collapsedHeight + 'px';
+			});
+		}
+		container.classList.add('hwm_is-collapsed');
 		collapseBtn.classList.add('hwm_rotated');
-		collapseBtn.title = 'Espandi';
+		collapseBtn.title = t('btn_expand');
+		collapseBtn.setAttribute('data-hwm-key', 'btn_expand');
 	};
 	// Carica SVG e chiama doConvertWiki (che lancia eccezione in caso di errore)
 	const doConvertAction = async () => {
@@ -736,11 +747,27 @@ function createPortalPanel(
 	plugin.register(() => plugin.bgModeListeners.delete(onBgMode));
 }
 
-// Crea un bottone div nel pannello portale
-function createPanelBtn(parent: HTMLElement, icon: string, title: string): HTMLElement {
+// Overlay di conferma inline su un elemento position:relative.
+// Evita window.confirm() che in Electron ruba il focus dalla finestra.
+function showInlineConfirm(anchorEl: HTMLElement, msg: string): Promise<boolean> {
+	return new Promise(resolve => {
+		const overlay = anchorEl.createDiv({ cls: 'hwm_confirm-overlay' });
+		overlay.createEl('span', { text: msg, cls: 'hwm_confirm-msg' });
+		const okBtn = overlay.createEl('button', { text: t('confirm_ok'), cls: 'mod-warning' });
+		const cancelBtn = overlay.createEl('button', { text: t('confirm_cancel') });
+		okBtn.addEventListener('click', () => { overlay.remove(); resolve(true); });
+		cancelBtn.addEventListener('click', () => { overlay.remove(); resolve(false); });
+		okBtn.focus();
+	});
+}
+
+// Crea un bottone div nel pannello portale.
+// key: chiave i18n — usata sia per il title che per data-hwm-key (aggiornamento live al cambio lingua)
+function createPanelBtn(parent: HTMLElement, icon: string, key: string): HTMLElement {
 	const btn = document.createElement('div');
 	btn.className = 'hwm_btn';
-	btn.setAttribute('title', title);
+	btn.setAttribute('title', t(key as any));
+	btn.setAttribute('data-hwm-key', key);
 	btn.setAttribute('role', 'button');
 	btn.setAttribute('tabindex', '0');
 	btn.innerHTML = ICONS[icon] ?? '';
@@ -764,7 +791,7 @@ function createLegacyPortalButton(
 	const btn = document.createElement('button');
 	btn.className = 'hwm_portal-btn';
 	btn.innerHTML = ICONS['pencil'] ?? '';
-	btn.title = 'Apri editor disegno';
+	btn.title = t('btn_open_editor');
 	document.body.appendChild(btn);
 
 	// Apre la tab editor al click
@@ -804,33 +831,11 @@ function createLegacyPortalButton(
 
 // Usa <div> invece di <button> per i bottoni dentro cm-content.
 // I <button> su Android Mobile possono interferire con l'handwriting.
-function createBtn(parent: HTMLElement, icon: string, title: string): HTMLElement {
-	const btn = parent.createDiv({ cls: 'hwm_btn', attr: { title, role: 'button', tabindex: '0' } });
+// key: chiave i18n — usata sia per il title che per data-hwm-key (aggiornamento live al cambio lingua)
+function createBtn(parent: HTMLElement, icon: string, key: string): HTMLElement {
+	const btn = parent.createDiv({ cls: 'hwm_btn', attr: { title: t(key as any), role: 'button', tabindex: '0' } });
+	btn.setAttribute('data-hwm-key', key);
 	btn.innerHTML = ICONS[icon] ?? '';
 	return btn;
 }
 
-function svgToBase64Png(svgElement: SVGElement): Promise<string> {
-	return new Promise((resolve, reject) => {
-		const canvas = document.createElement('canvas');
-		const ctx = canvas.getContext('2d')!;
-		const img = new Image();
-		const svgBlob = new Blob(
-			[new XMLSerializer().serializeToString(svgElement)],
-			{ type: 'image/svg+xml' }
-		);
-		const url = URL.createObjectURL(svgBlob);
-		img.onload = () => {
-			canvas.width = img.width;
-			canvas.height = img.height;
-			ctx.drawImage(img, 0, 0);
-			URL.revokeObjectURL(url);
-			resolve(canvas.toDataURL('image/png').split(',')[1]!);
-		};
-		img.onerror = () => {
-			URL.revokeObjectURL(url);
-			reject(new Error('Errore conversione SVG → PNG'));
-		};
-		img.src = url;
-	});
-}

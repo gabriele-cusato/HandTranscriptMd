@@ -1,6 +1,6 @@
 {
 	"name": "handwriting-to-markdown",
-	"version": "0.1.0",
+	"version": "1.0.0",
 	"description": "Inline handwriting canvas with conversion to structured markdown",
 	"main": "main.js",
 	"type": "module",
