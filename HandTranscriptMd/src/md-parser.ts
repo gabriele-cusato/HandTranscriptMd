@@ -227,17 +227,53 @@ export function expandKeywords(text: string, fnStart = 1): string {
 			case 'CODE':   out.push(`\`${content}\``);   break;
 
 			// --- Liste ---
-			case 'LIST':    out.push(buildBulletList(content)); break;
-			case 'NUMLIST': out.push(buildNumList(content));    break;
-			case 'CHECK':   out.push(buildChecklist(content));  break;
+			// Tutte e tre supportano continuazione multi-riga (virgola finale)
+			case 'LIST': {
+				const [fullContent, newI] = collectContinuation(lines, i + 1, content);
+				i = newI;
+				out.push(buildBulletList(fullContent));
+				continue; // i gia' avanzato
+			}
+			case 'NUMLIST': {
+				// Offset opzionale: //NUMLIST 3 item1, item2 -> parte da 3
+				let offset = 1;
+				let items = content;
+				const offsetMatch = content.match(/^(\d+)\s+(.*)/s);
+				if (offsetMatch) { offset = parseInt(offsetMatch[1]); items = offsetMatch[2]; }
+				const [fullItems, newI] = collectContinuation(lines, i + 1, items);
+				i = newI;
+				out.push(buildNumList(fullItems, offset));
+				continue;
+			}
+			case 'CHECK': {
+				const [fullContent, newI] = collectContinuation(lines, i + 1, content);
+				i = newI;
+				out.push(buildChecklist(fullContent));
+				continue;
+			}
 
 			// --- Callout Obsidian ---
-			case 'NOTE':      out.push(buildCallout('NOTE',      content)); break;
-			case 'WARN':      out.push(buildCallout('WARNING',   content)); break;
-			case 'TIP':       out.push(buildCallout('TIP',       content)); break;
-			case 'INFO':      out.push(buildCallout('INFO',      content)); break;
-			case 'ERROR':     out.push(buildCallout('ERROR',     content)); break;
-			case 'IMPORTANT': out.push(buildCallout('IMPORTANT', content)); break;
+			// Tutti i callout: content = titolo inline, righe successive = corpo (fino a riga vuota)
+			case 'NOTE':
+			case 'WARN':
+			case 'TIP':
+			case 'INFO':
+			case 'ERROR':
+			case 'IMPORTANT': {
+				const typeMap: Record<string, string> = { WARN: 'WARNING' };
+				const calloutType = typeMap[keyword] ?? keyword;
+				i++;
+				const bodyLines: string[] = [];
+				// Raccoglie righe del corpo fino alla prima vuota o nuova keyword
+				while (i < lines.length) {
+					const bl = lines[i].trim();
+					if (!bl || bl.startsWith('//')) break;
+					bodyLines.push(bl);
+					i++;
+				}
+				out.push(buildCallout(calloutType, content, bodyLines));
+				continue;
+			}
 			case 'QUOTE':     out.push(`> ${content}`);                     break;
 
 			// --- Link e immagini ---
@@ -317,21 +353,27 @@ export function expandKeywords(text: string, fnStart = 1): string {
 			// Righe:  val1, val2, val3  (una per riga, virgola come separatore)
 			// Fine:   //TABLE  (tag di chiusura) oppure riga vuota
 			case 'TABLE': {
-				const headers = content.split(',').map(h => h.trim());
+				// Continuazione header se //TABLE Col1, Col2, finisce con virgola -> prosegue sulla riga successiva
+				const [fullHeader, startI] = collectContinuation(lines, i + 1, content);
+				const headers = fullHeader.split(',').map(h => h.trim()).filter(h => h);
 				const rows: string[][] = [];
-				i++;
+				i = startI;
 				while (i < lines.length) {
-					const rowLine = lines[i].trim();
-					// Chiusura esplicita: //TABLE (anche con rumore OCR dopo, es. //TABLE. //TABLE:)
-					// \b garantisce che "TABLE" sia seguito da fine parola, non da altre lettere
-					if (/^\/\/TABLE\b/i.test(rowLine)) { i++; break; }
+					let rowLine = lines[i].trim();
+					// Chiusura esplicita //TABLE
+					if (/^\/\/TABLE/i.test(rowLine)) { i++; break; }
 					// Qualsiasi altra keyword chiude implicitamente senza consumarla
 					if (/^\/\//.test(rowLine)) break;
 					// Fine implicita: riga vuota
 					if (!rowLine) break;
-					// Riga con o senza virgola: trattata comunque come riga dati
-					// (evita interruzione prematura per righe OCR con cella singola)
-					rows.push(rowLine.split(',').map(c => c.trim()));
+					// Continuazione riga: se finisce con virgola, leggi la riga successiva
+					while (rowLine.trimEnd().endsWith(',') && i + 1 < lines.length) {
+						const nextRow = lines[i + 1].trim();
+						if (!nextRow || nextRow.startsWith('//')) break;
+						rowLine = rowLine.trimEnd() + ' ' + nextRow;
+						i++;
+					}
+					rows.push(rowLine.split(',').map(c => c.trim()).filter(c => c));
 					i++;
 				}
 				out.push(buildTable(headers, rows));
@@ -382,24 +424,71 @@ function splitTwo(content: string): [string, string] {
 	return [content.slice(0, idx).trim(), content.slice(idx + 1).trim()];
 }
 
+/**
+ * Se content finisce con ',', raccoglie le righe successive come prosecuzione.
+ * Restituisce [contenuto_completo, nuovo_indice].
+ * nuovo_indice punta già oltre le righe consumate → usare continue nel loop, non break.
+ */
+function collectContinuation(lines: string[], nextI: number, content: string): [string, number] {
+	let full = content;
+	let i = nextI;
+	// Finché l'ultima riga raccolta finisce con virgola, aggiungi la riga successiva
+	while (full.trimEnd().endsWith(',') && i < lines.length) {
+		const next = lines[i].trim();
+		// Riga vuota o nuova keyword → stop
+		if (!next || next.startsWith('//')) break;
+		full = full.trimEnd() + ' ' + next;
+		i++;
+	}
+	return [full, i];
+}
+
 /** Costruisce lista puntata da "a, b, c" → "- a\n- b\n- c" */
 function buildBulletList(content: string): string {
-	return content.split(',').map(item => `- ${item.trim()}`).join('\n');
+	return content.split(',')
+		.map(item => item.trim()).filter(item => item)
+		.map(item => `- ${item}`).join('\n');
 }
 
-/** Costruisce lista numerata da "a, b, c" → "1. a\n2. b\n3. c" */
-function buildNumList(content: string): string {
-	return content.split(',').map((item, i) => `${i + 1}. ${item.trim()}`).join('\n');
+/** Costruisce lista numerata da "a, b, c" → "1. a\n2. b\n3. c"; start: numero iniziale */
+function buildNumList(content: string, start = 1): string {
+	return content.split(',')
+		.map(item => item.trim()).filter(item => item)
+		.map((item, idx) => `${start + idx}. ${item}`).join('\n');
 }
 
-/** Costruisce checklist da "a, b, c" → "- [ ] a\n- [ ] b\n- [ ] c" */
+/**
+ * Costruisce checklist da "a, b, c".
+ * Prefisso "x", "X", "[x]", "[X]" → spuntato; tutto il resto → vuoto.
+ * Es: "x fatto, da fare, [x] altro" → "- [x] fatto\n- [ ] da fare\n- [x] altro"
+ */
 function buildChecklist(content: string): string {
-	return content.split(',').map(item => `- [ ] ${item.trim()}`).join('\n');
+	return content.split(',')
+		.map(item => item.trim()).filter(item => item)
+		.map(item => {
+			// Prefisso checked: x o [x] (con o senza parentesi quadre) seguito da spazio
+			if (/^(?:[xX]|\[[xX]\])\s+/.test(item)) {
+				return `- [x] ${item.replace(/^(?:[xX]|\[[xX]\])\s+/, '')}`;
+			}
+			// Prefisso unchecked esplicito: [ ] seguito da spazio
+			if (/^\[\s*\]\s+/.test(item)) {
+				return `- [ ] ${item.replace(/^\[\s*\]\s+/, '')}`;
+			}
+			// Nessun prefisso → vuoto di default
+			return `- [ ] ${item}`;
+		}).join('\n');
 }
 
-/** Costruisce un callout Obsidian: > [!TYPE]\n> contenuto */
-function buildCallout(type: string, content: string): string {
-	return `> [!${type}]\n> ${content}`;
+/**
+ * Costruisce un callout Obsidian.
+ * title: testo opzionale sulla stessa riga di [!TYPE]
+ * bodyLines: righe successive del corpo
+ */
+function buildCallout(type: string, title: string, bodyLines: string[] = []): string {
+	// Il titolo va inline: > [!NOTE] Titolo  (sintassi Obsidian standard)
+	const header = title ? `> [!${type}] ${title}` : `> [!${type}]`;
+	if (!bodyLines.length) return header;
+	return header + '\n' + bodyLines.map(l => `> ${l}`).join('\n');
 }
 
 /**
