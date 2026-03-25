@@ -52,8 +52,15 @@ export function getEffectiveLineColor(settings: HandwritingSettings): string {
 // Mappa colori chiari ↔ scuri per adattare i tratti al cambio tema.
 // Quando l'utente cambia tema, i tratti con colori della palette opposta
 // vengono rimappati ai corrispondenti colori leggibili.
-const LIGHT_COLORS = ['#000000', '#1e40af', '#dc2626', '#16a34a'];
-const DARK_COLORS  = ['#ffffff', '#60a5fa', '#f87171', '#4ade80'];
+// Esportati per essere usati da editor-view.ts senza ridefinirli.
+export const LIGHT_COLORS = ['#000000', '#1e40af', '#dc2626', '#16a34a'];
+export const DARK_COLORS  = ['#ffffff', '#60a5fa', '#f87171', '#4ade80'];
+
+// Risolve se il tema è scuro tenendo conto di 'auto' (legge la classe Obsidian sul body)
+export function resolveIsDark(bgMode: string): boolean {
+	if (bgMode === 'auto') return document.body.classList.contains('theme-dark');
+	return bgMode === 'dark';
+}
 
 // Rimappa il colore di un tratto in base al tema corrente
 export function remapStrokeColor(color: string, bgMode: BgMode): string {
@@ -84,9 +91,6 @@ export const DEFAULT_SETTINGS: HandwritingSettings = {
 	uiLanguage: 'auto',           // default: segue la lingua di sistema di Obsidian
 };
 
-// Nome del branch corrente — aggiornare manualmente ad ogni cambio di branch
-const PLUGIN_BRANCH = 'overlay';
-
 export class HandwritingSettingTab extends PluginSettingTab {
 	plugin: HandwritingPlugin;
 
@@ -98,6 +102,8 @@ export class HandwritingSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
+		// Classe per scopare i CSS responsive delle impostazioni
+		containerEl.addClass('hwm_settings');
 
 		containerEl.createEl('h2', { text: 'Handwriting to Markdown' });
 

@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(cd \"C:/Projects/pluginObsidian/handWrittenMarkdownConverter/obsidian-sample-plugin\" && node esbuild.config.mjs production && bash cloudDeploy.sh)",
+      "WebFetch(domain:groups.google.com)",
+      "WebFetch(domain:css-tricks.com)",
+      "WebFetch(domain:chromium.googlesource.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:developer.chrome.com)",
+      "Bash(\"C:\\\\Program Files\\\\Git\\\\bin\\\\bash.exe\" --login -c \"cd 'C:/Projects/pluginObsidian/handWrittenMarkdownConverter/HandTranscriptMd' && bash deploy.sh && bash cloudDeploy.sh\" 2>&1)",
+      "Bash(\"C:\\\\Program Files\\\\Git\\\\bin\\\\bash.exe\" --login -c \"cd 'C:/Projects/pluginObsidian/handWrittenMarkdownConverter/HandTranscriptMd' && bash deploy.sh\" 2>&1)"
+    ]
+  }
+}

@@ -719,3 +719,45 @@
 	color: var(--text-accent);
 	white-space: nowrap;
 }
+
+/* --- Impostazioni responsive: controlli compatti, descrizioni sempre leggibili ---
+   Il problema su portrait mobile: .setting-item-control ha flex-shrink:0 nel CSS
+   di Obsidian, quindi cresce fino a spingere la descrizione fuori schermo.
+   Soluzione: limitiamo la larghezza max dei controlli e, sotto 480px,
+   impiliamo verticalmente (descrizione sopra, controllo sotto). */
+
+/* Permette al controllo di restringersi se lo spazio è poco */
+.hwm_settings .setting-item-control {
+	flex-shrink: 1;
+	min-width: 0;
+}
+
+/* Input e select: larghezza max fissa, non crescono oltre */
+.hwm_settings .setting-item-control input[type="text"],
+.hwm_settings .setting-item-control input[type="password"],
+.hwm_settings .setting-item-control select {
+	max-width: 160px;
+	min-width: 60px;
+	width: auto;
+}
+
+/* Su schermi stretti (portrait tablet/phone): layout verticale */
+@media (max-width: 480px) {
+	.hwm_settings .setting-item {
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 8px;
+	}
+	/* Il controllo va sotto, allineato a sinistra */
+	.hwm_settings .setting-item-control {
+		width: auto;
+		justify-content: flex-start;
+	}
+	/* Input e select: tornano a dimensione naturale, non più cappati */
+	.hwm_settings .setting-item-control input[type="text"],
+	.hwm_settings .setting-item-control input[type="password"],
+	.hwm_settings .setting-item-control select {
+		max-width: none;
+		width: auto;
+	}
+}

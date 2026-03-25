@@ -46,5 +46,15 @@
 	"btn_open_editor": "Open drawing editor",
 	"confirm_delete": "Delete this handwriting block and the associated SVG file?",
 	"confirm_ok": "Delete",
-	"confirm_cancel": "Cancel"
+	"confirm_cancel": "Cancel",
+	"notice_recognizing": "Recognizing…",
+	"error_no_strokes": "No strokes to convert",
+	"error_no_text": "No text recognized",
+	"error_file_not_found": "Markdown file not found",
+	"notice_deleted": "Block deleted",
+	"notice_saved": "Saved",
+	"notice_converted": "Conversion complete!",
+	"error_ocr": "OCR error: ",
+	"notice_placeholder_draw": "Use the pencil button (top right) to draw",
+	"notice_open_md_first": "Open a markdown file first"
 }

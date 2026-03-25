@@ -8,19 +8,13 @@
 import { ItemView, WorkspaceLeaf, TFile, Notice, Platform, Modal, App, MarkdownView } from 'obsidian';
 import type HandwritingPlugin from './main';
 import { DrawingCanvas, Stroke } from './drawing-canvas';
-import { strokesToSvg, parseSvgStrokes } from './svg-utils';
-import { getEffectiveBgColor, getEffectiveLineColor, remapStrokeColor } from './settings';
+import { strokesToSvg, parseSvgStrokes, svgToBase64Png, archiveSvgFile } from './svg-utils';
+import { getEffectiveBgColor, getEffectiveLineColor, remapStrokeColor, LIGHT_COLORS, DARK_COLORS, resolveIsDark } from './settings';
 import { getRecognizer } from './recognizer';
-import { parseMarkdown } from './md-parser';
+import { parseHandwritingToMarkdown } from './md-parser';
 import { t } from './i18n';
 
 export const VIEW_TYPE_HANDWRITING = 'handwriting-editor';
-
-// Risolve se il tema è scuro tenendo conto di 'auto' (legge la classe Obsidian sul body)
-function resolveIsDark(bgMode: string): boolean {
-	if (bgMode === 'auto') return document.body.classList.contains('theme-dark');
-	return bgMode === 'dark';
-}
 
 // Icone SVG inline (stile Lucide 24×24)
 const ICONS: Record<string, string> = {
@@ -37,6 +31,277 @@ const ICONS: Record<string, string> = {
 	'chevron-up':  `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>`,
 	'arrow-left':  `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>`,
 };
+
+/* =============================================
+   Utilità condivise tra DrawingEditorView e DrawingModal
+   ============================================= */
+
+// Regex per trovare ![[svgPath]] nel file .md (nuovo formato wiki)
+function wikiEmbedRegex(svgPath: string): RegExp {
+	const esc = svgPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	return new RegExp(`\\n?!\\[\\[${esc}\\]\\]\\n?`);
+}
+
+// Regex per trovare il code block legacy con l'id specifico
+function codeBlockRegex(embedId: string): RegExp {
+	const esc = embedId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	return new RegExp('\\n?```handwriting\\n.*?"id"\\s*:\\s*"' + esc + '".*?\\n```\\n?', 's');
+}
+
+// Applica una sostituzione sul file .md.
+// Prova prima il formato wiki ![[svg]], poi il code block legacy come fallback.
+async function replaceInMdFile(
+	mdPath: string,
+	svgPath: string,
+	embedId: string,
+	replacement: string,
+	plugin: HandwritingPlugin
+): Promise<void> {
+	const mdFile = plugin.app.vault.getAbstractFileByPath(mdPath);
+	if (!(mdFile instanceof TFile)) { new Notice(t('error_file_not_found')); return; }
+	const content = await plugin.app.vault.read(mdFile);
+	let updated = content.replace(wikiEmbedRegex(svgPath), replacement);
+	if (updated === content) updated = content.replace(codeBlockRegex(embedId), replacement);
+	if (updated !== content) await plugin.app.vault.modify(mdFile, updated);
+}
+
+// Carica i tratti da un file SVG nel vault. Restituisce anche le dimensioni del viewBox.
+async function loadStrokesFromSvg(
+	svgPath: string,
+	plugin: HandwritingPlugin
+): Promise<{ strokes: Stroke[]; canvasWidth: number | null; canvasHeight: number | null }> {
+	const file = plugin.app.vault.getAbstractFileByPath(svgPath);
+	if (file instanceof TFile) {
+		const content = await plugin.app.vault.read(file);
+		const m = content.match(/viewBox="0 0 (\d+) (\d+)"/);
+		return {
+			strokes: parseSvgStrokes(content),
+			canvasWidth:  m ? parseInt(m[1] ?? '0') : null,
+			canvasHeight: m ? parseInt(m[2] ?? '0') : null,
+		};
+	}
+	return { strokes: [], canvasWidth: null, canvasHeight: null };
+}
+
+// Salva il contenuto SVG del canvas su disco e aggiorna la preview inline.
+async function saveSvgToDisk(
+	canvas: DrawingCanvas,
+	svgPath: string,
+	embedId: string,
+	plugin: HandwritingPlugin
+): Promise<void> {
+	const svg = strokesToSvg(
+		canvas.getStrokes(), canvas.getWidth(), canvas.getHeight(),
+		canvas.getBgColor(), canvas.getLineColor()
+	);
+	const folder = svgPath.substring(0, svgPath.lastIndexOf('/'));
+	if (folder && !plugin.app.vault.getAbstractFileByPath(folder)) {
+		await plugin.app.vault.createFolder(folder);
+	}
+	const existing = plugin.app.vault.getAbstractFileByPath(svgPath);
+	if (existing instanceof TFile) {
+		await plugin.app.vault.modify(existing, svg);
+	} else {
+		await plugin.app.vault.create(svgPath, svg);
+	}
+	plugin.refreshPreview(embedId, svg);
+}
+
+// Crea un bottone con icona SVG inline.
+// Funzione standalone (non metodo) — usata da entrambe le classi editor.
+function mkBtn(parent: HTMLElement, icon: string, key: string): HTMLElement {
+	const label = t(key as any);
+	const btn = parent.createEl('button', { cls: 'hwm_btn', attr: { title: label } });
+	btn.setAttribute('data-hwm-key', key);
+	btn.innerHTML = ICONS[icon] ?? '';
+	return btn;
+}
+
+/* =============================================
+   buildEditorUI — Costruisce la toolbar e il canvas
+   condivisi tra DrawingEditorView e DrawingModal.
+
+   Accetta callback per i comportamenti specifici:
+   - onClose: cosa fare quando si clicca X
+   - afterCanvas: setup post-canvas (ResizeObserver su Android,
+     requestAnimationFrame su Desktop)
+   Restituisce { canvas, bgModeListener } per consentire
+   alla classe chiamante di fare cleanup in onClose().
+   ============================================= */
+async function buildEditorUI(opts: {
+	el: HTMLElement;
+	plugin: HandwritingPlugin;
+	svgPath: string;
+	embedId: string;
+	sourcePath: string;
+	onClose: () => void | Promise<void>;
+	afterCanvas: (canvas: DrawingCanvas, scrollWrap: HTMLElement, canvasWidth: number) => void;
+	doSave: () => Promise<void>;
+	doConvert: () => Promise<void>;
+	doDelete: () => Promise<void>;
+}): Promise<{ canvas: DrawingCanvas; bgModeListener: (bgMode: string) => void }> {
+	const { el, plugin } = opts;
+	const isMobile = Platform.isMobile;
+	const isDark   = resolveIsDark(plugin.settings.bgMode);
+	const bgColor  = getEffectiveBgColor(plugin.settings);
+	const lineColor = getEffectiveLineColor(plugin.settings);
+	el.style.backgroundColor = bgColor;
+
+	// --- Top bar: contiene la toolbar centrata e il bottone X ---
+	const topbar = el.createDiv({ cls: 'hwm_editor-topbar hwm_editor-topbar--modal' });
+	if (isDark) topbar.classList.add('hwm_editor-topbar--dark');
+
+	const toolbar = topbar.createDiv({ cls: 'hwm_toolbar hwm_editor-toolbar' });
+	if (isDark) toolbar.classList.add('hwm_toolbar--dark');
+
+	// Penna / Gomma
+	const penBtn    = mkBtn(toolbar, 'pencil', 'btn_pen');
+	penBtn.classList.add('hwm_active', 'hwm_pen-btn');
+	const eraserBtn = mkBtn(toolbar, 'eraser', 'btn_eraser');
+	eraserBtn.classList.add('hwm_eraser-btn');
+	toolbar.createDiv({ cls: 'hwm_separator' });
+
+	// Palette colori — valori importati da settings.ts (unica fonte di verità)
+	const colors = isDark ? [...DARK_COLORS] : [...LIGHT_COLORS];
+	const colorWrap = toolbar.createDiv({ cls: 'hwm_colors' });
+	const colorBtns: HTMLElement[] = [];
+	for (const c of colors) {
+		const btn = colorWrap.createEl('div', {
+			cls: 'hwm_color-btn',
+			attr: { title: c, role: 'button', tabindex: '0' }
+		});
+		btn.style.backgroundColor = c;
+		// Dimensioni forzate (bypass stili Obsidian Mobile)
+		for (const [k, v] of Object.entries({
+			width: '22px', height: '22px', 'min-width': '22px',
+			'min-height': '22px', 'border-radius': '50%',
+			'box-sizing': 'border-box', 'flex-shrink': '0'
+		})) btn.style.setProperty(k, v, 'important');
+		if (c === colors[0]) btn.classList.add('hwm_active');
+		colorBtns.push(btn);
+	}
+	toolbar.createDiv({ cls: 'hwm_separator' });
+
+	// Undo / Redo / Clear
+	const undoBtn  = mkBtn(toolbar, 'rotate-ccw', 'btn_undo');
+	undoBtn.classList.add('hwm_undo-btn');
+	const redoBtn  = mkBtn(toolbar, 'rotate-cw', 'btn_redo');
+	redoBtn.classList.add('hwm_redo-btn');
+	const clearBtn = mkBtn(toolbar, 'trash', 'btn_clear');
+	clearBtn.classList.add('hwm_clear-btn');
+	toolbar.createDiv({ cls: 'hwm_separator' });
+
+	// Converti / Salva / Elimina
+	const convertBtn = mkBtn(toolbar, 'file-text', 'btn_convert');
+	convertBtn.classList.add('hwm_convert-btn');
+	const saveBtn    = mkBtn(toolbar, 'save', 'btn_save');
+	saveBtn.classList.add('hwm_save-btn');
+	const deleteBtn  = mkBtn(toolbar, 'file-x', 'btn_delete');
+	deleteBtn.classList.add('hwm_delete-btn');
+
+	// Bottone chiudi (X): posizionato a destra via CSS absolute
+	const closeBtn = mkBtn(topbar, 'x', 'btn_close');
+	closeBtn.classList.add('hwm_close-btn');
+	closeBtn.addEventListener('click', () => opts.onClose());
+
+	// --- Scroll container e canvas ---
+	const scrollWrap  = el.createDiv({ cls: 'hwm_editor-scroll' });
+	const canvasWrap  = scrollWrap.createDiv({ cls: 'hwm_canvas-wrap' });
+
+	// Carica i tratti dal file SVG
+	const { strokes, canvasWidth: savedW, canvasHeight: savedH } = await loadStrokesFromSvg(opts.svgPath, plugin);
+	const { canvasWidth, canvasHeight } = plugin.settings;
+	// Usa le dimensioni salvate nel viewBox per preservare i tratti di sessioni precedenti più larghe
+	const w = savedW ?? canvasWidth;
+	const h = savedH ?? canvasHeight;
+	const debugFn = plugin.settings.debugMode ? (msg: string) => new Notice(msg, 3000) : null;
+
+	const canvas = new DrawingCanvas(canvasWrap, w, h, canvasHeight, isMobile, debugFn);
+	canvas.setBackground(bgColor, lineColor);
+	canvas.setColor(colors[0]!);
+	// Su mobile: dito = scroll manuale del container, penna = disegno
+	if (isMobile) canvas.allowFingerScroll(scrollWrap);
+
+	// Carica i tratti con remapping colori al tema corrente
+	if (strokes.length > 0) {
+		const remapped = strokes.map(s => ({
+			...s, color: remapStrokeColor(s.color, plugin.settings.bgMode)
+		}));
+		canvas.loadStrokes(remapped);
+	}
+
+	// Setup specifico della classe chiamante (ResizeObserver su Android, rAF su Desktop)
+	opts.afterCanvas(canvas, scrollWrap, canvasWidth);
+
+	// Resize handle (visibile ma non interattivo)
+	// NOTA: handle è dichiarato dopo colorBtns ma catturato dal bgModeListener per closure:
+	// la closure legge il valore corrente di 'handle' quando viene invocata (non quando è definita).
+	let handle!: HTMLElement;
+	handle = scrollWrap.createDiv({ cls: 'hwm_resize-handle hwm_resize-handle--disabled' });
+	handle.createEl('span', { text: '⋯' });
+	handle.classList.toggle('hwm_resize-handle--dark', isDark);
+
+	// Listener bgMode: aggiorna toolbar, pallini colore e sfondo canvas al cambio tema.
+	// Registrato da buildEditorUI e restituito alla classe per poterlo rimuovere in onClose().
+	const bgModeListener = (bgMode: string) => {
+		const dark = resolveIsDark(bgMode);
+		topbar.classList.toggle('hwm_editor-topbar--dark', dark);
+		toolbar.classList.toggle('hwm_toolbar--dark', dark);
+		handle.classList.toggle('hwm_resize-handle--dark', dark);
+		el.style.backgroundColor = getEffectiveBgColor(plugin.settings);
+		// Aggiorna i pallini colore palette
+		const newColors = dark ? DARK_COLORS : LIGHT_COLORS;
+		colorBtns.forEach((btn, i) => {
+			btn.style.backgroundColor = newColors[i] ?? '';
+			btn.setAttribute('title', newColors[i] ?? '');
+		});
+		// Aggiorna sfondo e righe nel canvas
+		canvas.setBackground(
+			getEffectiveBgColor(plugin.settings),
+			getEffectiveLineColor(plugin.settings)
+		);
+	};
+	plugin.bgModeListeners.add(bgModeListener);
+
+	// Auto-scroll quando il canvas si espande, ma solo se non si sta disegnando.
+	// Durante il disegno, lo scroll sposterebbe il canvas e le coordinate salterebbero.
+	canvas.onResize(() => {
+		if (!canvas.isPointerDown()) scrollWrap.scrollTop = scrollWrap.scrollHeight;
+	});
+
+	// --- Event handlers ---
+	const cv = canvas;
+
+	penBtn.addEventListener('click', () => {
+		cv.setMode('pen');
+		penBtn.classList.add('hwm_active');
+		eraserBtn.classList.remove('hwm_active');
+	});
+	eraserBtn.addEventListener('click', () => {
+		cv.setMode('eraser');
+		eraserBtn.classList.add('hwm_active');
+		penBtn.classList.remove('hwm_active');
+	});
+	for (let i = 0; i < colorBtns.length; i++) {
+		colorBtns[i]!.addEventListener('click', () => {
+			colorBtns.forEach(b => b.classList.remove('hwm_active'));
+			colorBtns[i]!.classList.add('hwm_active');
+			cv.setColor(colors[i]!);
+		});
+	}
+	undoBtn.addEventListener('click', () => cv.undo());
+	redoBtn.addEventListener('click', () => cv.redo());
+	clearBtn.addEventListener('click', () => cv.clear());
+	convertBtn.addEventListener('click', () => opts.doConvert());
+	saveBtn.addEventListener('click', async () => { await opts.doSave(); new Notice(t('notice_saved')); });
+	deleteBtn.addEventListener('click', () => opts.doDelete());
+
+	return { canvas, bgModeListener };
+}
+
+/* =============================================
+   DrawingEditorView — Tab dedicata (Android)
+   ============================================= */
 
 export class DrawingEditorView extends ItemView {
 	plugin: HandwritingPlugin;
@@ -92,371 +357,82 @@ export class DrawingEditorView extends ItemView {
 		this.displayRo = null;
 	}
 
-	/* ---------- Costruisce la UI dell'editor ---------- */
-
 	private async buildEditor() {
 		const el = this.contentEl;
 		el.empty();
 		el.classList.add('hwm_editor-view');
 
-		const isMobile = Platform.isMobile;
-		const isDark = resolveIsDark(this.plugin.settings.bgMode);
-		const bgColor = getEffectiveBgColor(this.plugin.settings);
-		const lineColor = getEffectiveLineColor(this.plugin.settings);
-		el.style.backgroundColor = bgColor;
-
-		// --- Top bar: toolbar centrata ---
-		const topbar = el.createDiv({ cls: 'hwm_editor-topbar hwm_editor-topbar--modal' });
-		if (isDark) topbar.classList.add('hwm_editor-topbar--dark');
-
-		// Toolbar centrata nel topbar
-		const toolbar = topbar.createDiv({ cls: 'hwm_toolbar hwm_editor-toolbar' });
-		if (isDark) toolbar.classList.add('hwm_toolbar--dark');
-
-		// Penna / Gomma
-		const penBtn = this.mkBtn(toolbar, 'pencil', 'btn_pen');
-		penBtn.classList.add('hwm_active', 'hwm_pen-btn');
-		const eraserBtn = this.mkBtn(toolbar, 'eraser', 'btn_eraser');
-		eraserBtn.classList.add('hwm_eraser-btn');
-		toolbar.createDiv({ cls: 'hwm_separator' });
-
-		// Colori
-		const colors = isDark
-			? ['#ffffff', '#60a5fa', '#f87171', '#4ade80']
-			: ['#000000', '#1e40af', '#dc2626', '#16a34a'];
-		const colorWrap = toolbar.createDiv({ cls: 'hwm_colors' });
-		const colorBtns: HTMLElement[] = [];
-		for (const c of colors) {
-			const btn = colorWrap.createEl('div', {
-				cls: 'hwm_color-btn',
-				attr: { title: c, role: 'button', tabindex: '0' }
-			});
-			btn.style.backgroundColor = c;
-			// Dimensioni forzate (bypass stili Obsidian Mobile)
-			for (const [k, v] of Object.entries({
-				width: '22px', height: '22px', 'min-width': '22px',
-				'min-height': '22px', 'border-radius': '50%',
-				'box-sizing': 'border-box', 'flex-shrink': '0'
-			})) btn.style.setProperty(k, v, 'important');
-			if (c === colors[0]) btn.classList.add('hwm_active');
-			colorBtns.push(btn);
-		}
-		toolbar.createDiv({ cls: 'hwm_separator' });
-
-		// Listener bgMode: aggiorna toolbar, pallini colore e sfondo canvas al cambio tema.
-		// Deve stare DOPO la dichiarazione di colorBtns per poterli aggiornare nel closure.
-		const lightColors = ['#000000', '#1e40af', '#dc2626', '#16a34a'];
-		const darkColors  = ['#ffffff', '#60a5fa', '#f87171', '#4ade80'];
-		this.bgModeListener = (bgMode: string) => {
-			const dark = resolveIsDark(bgMode);
-			topbar.classList.toggle('hwm_editor-topbar--dark', dark);
-			toolbar.classList.toggle('hwm_toolbar--dark', dark);
-			handle.classList.toggle('hwm_resize-handle--dark', dark);
-			el.style.backgroundColor = getEffectiveBgColor(this.plugin.settings);
-			// Aggiorna i pallini colore palette (backgroundColor inline con !important)
-			const newColors = dark ? darkColors : lightColors;
-			colorBtns.forEach((btn, i) => {
-				btn.style.backgroundColor = newColors[i] ?? '';
-				btn.setAttribute('title', newColors[i] ?? '');
-			});
-			// Aggiorna sfondo e righe nel canvas
-			if (this.canvas) {
-				this.canvas.setBackground(
-					getEffectiveBgColor(this.plugin.settings),
-					getEffectiveLineColor(this.plugin.settings)
-				);
-			}
-		};
-		this.plugin.bgModeListeners.add(this.bgModeListener);
-
-		// Undo / Redo / Clear
-		const undoBtn = this.mkBtn(toolbar, 'rotate-ccw', 'btn_undo');
-		undoBtn.classList.add('hwm_undo-btn');
-		const redoBtn = this.mkBtn(toolbar, 'rotate-cw', 'btn_redo');
-		redoBtn.classList.add('hwm_redo-btn');
-		const clearBtn = this.mkBtn(toolbar, 'trash', 'btn_clear');
-		clearBtn.classList.add('hwm_clear-btn');
-		toolbar.createDiv({ cls: 'hwm_separator' });
-
-		// Converti / Salva / Elimina
-		const convertBtn = this.mkBtn(toolbar, 'file-text', 'btn_convert');
-		convertBtn.classList.add('hwm_convert-btn');
-		const saveBtn = this.mkBtn(toolbar, 'save', 'btn_save');
-		saveBtn.classList.add('hwm_save-btn');
-		const deleteBtn = this.mkBtn(toolbar, 'file-x', 'btn_delete');
-		deleteBtn.classList.add('hwm_delete-btn');
-
-		// Bottone chiudi (X): nel topbar, posizionata a destra via CSS absolute
-		const closeBtn = this.mkBtn(topbar, 'x', 'btn_close');
-		closeBtn.classList.add('hwm_close-btn');
-		closeBtn.addEventListener('click', async () => {
-			await this.saveSvg();
-			this.leaf.detach();
+		const { canvas, bgModeListener } = await buildEditorUI({
+			el,
+			plugin: this.plugin,
+			svgPath: this.svgPath,
+			embedId: this.embedId,
+			sourcePath: this.sourcePath,
+			// Chiude la tab dopo aver salvato
+			onClose: async () => { await this.saveSvg(); this.leaf.detach(); },
+			// Adatta il canvas alla larghezza reale e la mantiene sincronizzata
+			// ad ogni cambio orientamento (portrait ↔ landscape).
+			afterCanvas: (cv, scrollWrap) => {
+				this.displayRo = new ResizeObserver(() => {
+					const displayW = scrollWrap.clientWidth || el.clientWidth;
+					if (displayW === 0) return;
+					cv.setDisplayWidth(displayW);
+				});
+				this.displayRo.observe(scrollWrap);
+				this.displayRo.observe(el);
+			},
+			doSave: () => this.saveSvg(),
+			doConvert: () => this.doConvert(),
+			doDelete: () => this.doDelete(),
 		});
 
-		// --- Scroll container ---
-		const scrollWrap = el.createDiv({ cls: 'hwm_editor-scroll' });
-		const canvasWrap = scrollWrap.createDiv({ cls: 'hwm_canvas-wrap' });
+		this.canvas = canvas;
+		this.bgModeListener = bgModeListener;
 
-		// Carica tratti dal file SVG
-		const { strokes, canvasWidth: savedW, canvasHeight: savedH } = await this.loadStrokes();
-		const { canvasWidth, canvasHeight } = this.plugin.settings;
-		// Usa la larghezza salvata nel viewBox SVG come worldWidth iniziale: garantisce che
-		// setDisplayWidth() non tagli i tratti disegnati in sessioni precedenti più larghe.
-		const w = savedW ?? canvasWidth;
-		const h = savedH ?? canvasHeight;
-		const debugFn = this.plugin.settings.debugMode
-			? (msg: string) => new Notice(msg, 3000) : null;
-
-		// Crea il canvas
-		this.canvas = new DrawingCanvas(canvasWrap, w, h, canvasHeight, isMobile, debugFn);
-		this.canvas.setBackground(bgColor, lineColor);
-		this.canvas.setColor(colors[0]!);
-		// Su mobile: dito = scroll, penna = disegno
-		// Su mobile: dito = scroll manuale del container, penna = disegno
-		if (isMobile) this.canvas.allowFingerScroll(scrollWrap);
-
-		// Carica tratti con remapping colori
-		if (strokes.length > 0) {
-			const remapped = strokes.map(s => ({
-				...s, color: remapStrokeColor(s.color, this.plugin.settings.bgMode)
-			}));
-			this.canvas.loadStrokes(remapped);
-		}
-
-		// Adatta il canvas alla larghezza reale del container e la mantiene sincronizzata
-		// ad ogni cambio di orientamento (portrait ↔ landscape).
-		// L'observer resta attivo per tutta la vita della tab; viene rimosso in onClose().
-		// Se clientWidth è ancora 0 (tab non renderizzata), salta e riprova al prossimo evento.
-		this.displayRo = new ResizeObserver(() => {
-			const displayW = scrollWrap.clientWidth || el.clientWidth;
-			if (displayW === 0) return;
-			this.canvas?.setDisplayWidth(displayW);
-		});
-		this.displayRo.observe(scrollWrap);
-		this.displayRo.observe(el);
-
-		// Resize handle (visibile ma non interattivo)
-		const handle = scrollWrap.createDiv({ cls: 'hwm_resize-handle hwm_resize-handle--disabled' });
-		handle.createEl('span', { text: '⋯' });
-		handle.classList.toggle('hwm_resize-handle--dark', isDark);
-
-		// Auto-scroll quando il canvas si espande, ma solo se non si sta disegnando.
-		// Durante il disegno, lo scroll sposterebbe il canvas nel viewport e le
-		// coordinate del tratto salterebbero (getBoundingClientRect cambia).
-		this.canvas.onResize(() => {
-			if (!this.canvas?.isPointerDown()) scrollWrap.scrollTop = scrollWrap.scrollHeight;
-		});
-
-		// --- Event handlers ---
-		const cv = this.canvas;
-
-		penBtn.addEventListener('click', () => {
-			cv.setMode('pen');
-			penBtn.classList.add('hwm_active');
-			eraserBtn.classList.remove('hwm_active');
-		});
-		eraserBtn.addEventListener('click', () => {
-			cv.setMode('eraser');
-			eraserBtn.classList.add('hwm_active');
-			penBtn.classList.remove('hwm_active');
-		});
-		for (let i = 0; i < colorBtns.length; i++) {
-			colorBtns[i]!.addEventListener('click', () => {
-				colorBtns.forEach(b => b.classList.remove('hwm_active'));
-				colorBtns[i]!.classList.add('hwm_active');
-				cv.setColor(colors[i]!);
-				if (isMobile) updateColorSizes(toolbar.classList.contains('hwm_toolbar--compact'));
-			});
-		}
-		undoBtn.addEventListener('click', () => cv.undo());
-		redoBtn.addEventListener('click', () => cv.redo());
-		clearBtn.addEventListener('click', () => cv.clear());
-
-		convertBtn.addEventListener('click', () => this.doConvert());
-		saveBtn.addEventListener('click', async () => { await this.saveSvg(); new Notice('Salvato'); });
-		deleteBtn.addEventListener('click', () => this.doDelete());
-
-		// Auto-save debounced (2s dopo ultimo cambiamento)
-		cv.onChange(() => {
+		// Auto-save debounced (2s dopo l'ultimo cambiamento)
+		canvas.onChange(() => {
 			if (this.saveTimer) clearTimeout(this.saveTimer);
 			this.saveTimer = setTimeout(() => this.saveSvg(), 2000);
 		});
-
-		// Bottone ← → salva e chiudi la tab
-	}
-
-	/* ---------- File I/O ---------- */
-
-	private async loadStrokes(): Promise<{ strokes: Stroke[]; canvasWidth: number | null; canvasHeight: number | null }> {
-		const file = this.app.vault.getAbstractFileByPath(this.svgPath);
-		if (file instanceof TFile) {
-			const content = await this.app.vault.read(file);
-			const strokes = parseSvgStrokes(content);
-			// Legge sia la larghezza che l'altezza dal viewBox per ripristinare
-			// il worldWidth originale (evita il taglio dei tratti oltre settings.canvasWidth)
-			const m = content.match(/viewBox="0 0 (\d+) (\d+)"/);
-			return {
-				strokes,
-				canvasWidth:  m ? parseInt(m[1] ?? '0') : null,
-				canvasHeight: m ? parseInt(m[2] ?? '0') : null,
-			};
-		}
-		return { strokes: [], canvasWidth: null, canvasHeight: null };
 	}
 
 	private async saveSvg() {
 		if (!this.canvas) return;
-		const strokes = this.canvas.getStrokes();
-		const svg = strokesToSvg(strokes, this.canvas.getWidth(), this.canvas.getHeight(),
-			this.canvas.getBgColor(), this.canvas.getLineColor());
-
-		// Crea cartella se necessario
-		const folder = this.svgPath.substring(0, this.svgPath.lastIndexOf('/'));
-		if (folder && !this.app.vault.getAbstractFileByPath(folder)) {
-			await this.app.vault.createFolder(folder);
-		}
-		const existing = this.app.vault.getAbstractFileByPath(this.svgPath);
-		if (existing instanceof TFile) {
-			await this.app.vault.modify(existing, svg);
-		} else {
-			await this.app.vault.create(this.svgPath, svg);
-		}
-		// Aggiorna preview inline se visibile
-		this.plugin.refreshPreview(this.embedId, svg);
+		await saveSvgToDisk(this.canvas, this.svgPath, this.embedId, this.plugin);
 	}
-
-	/* ---------- Converti OCR ---------- */
 
 	private async doConvert() {
 		if (!this.canvas || this.canvas.getStrokes().length === 0) {
-			new Notice('Nessun tratto da convertire');
-			return;
+			new Notice(t('error_no_strokes')); return;
 		}
 		try {
-			new Notice('Riconoscimento in corso…');
+			new Notice(t('notice_recognizing'));
 			const svg = strokesToSvg(this.canvas.getStrokes(), this.canvas.getWidth(),
 				this.canvas.getHeight(), this.canvas.getBgColor(), this.canvas.getLineColor());
-			// SVG → PNG base64
-			const parser = new DOMParser();
-			const svgEl = parser.parseFromString(svg, 'image/svg+xml').documentElement as unknown as SVGElement;
-			const base64 = await this.svgToPng(svgEl);
-			// OCR via Gemini
+			const svgEl  = new DOMParser().parseFromString(svg, 'image/svg+xml').documentElement as unknown as SVGElement;
+			const base64 = await svgToBase64Png(svgEl);
 			const recognizer = getRecognizer(this.plugin.settings.geminiApiKey, this.plugin.settings.ocrLanguages);
 			const rawText = await recognizer.recognize(base64);
-			if (!rawText.trim()) { new Notice('Nessun testo riconosciuto'); return; }
-			// Markdown + archivia + sostituisci
-			const markdown = parseMarkdown(rawText);
-			await this.archiveSvg();
-			await this.replaceCodeBlock(markdown);
-			this.canvas.destroy();
-			this.canvas = null;
+			if (!rawText.trim()) { new Notice(t('error_no_text')); return; }
+			const markdown = parseHandwritingToMarkdown(rawText);
+			await archiveSvgFile(this.svgPath, this.plugin);
+			await replaceInMdFile(this.sourcePath, this.svgPath, this.embedId, '\n' + markdown + '\n', this.plugin);
+			this.canvas.destroy(); this.canvas = null;
 			this.leaf.detach();
-			new Notice('Conversione completata!');
+			new Notice(t('notice_converted'));
 		} catch (e: unknown) {
-			new Notice('Errore OCR: ' + (e instanceof Error ? e.message : String(e)));
+			new Notice(t('error_ocr') + (e instanceof Error ? e.message : String(e)));
 		}
 	}
-
-	/* ---------- Elimina ---------- */
 
 	private async doDelete() {
 		if (!confirm(t('confirm_delete'))) return;
 		if (this.canvas) { this.canvas.destroy(); this.canvas = null; }
-		// Rimuovi code block dal .md
-		await this.removeCodeBlock();
-		// Cancella il file SVG
-		const svgFile = this.app.vault.getAbstractFileByPath(this.svgPath);
-		if (svgFile instanceof TFile) await this.app.vault.delete(svgFile);
+		await replaceInMdFile(this.sourcePath, this.svgPath, this.embedId, '\n', this.plugin);
+		const svgFile = this.plugin.app.vault.getAbstractFileByPath(this.svgPath);
+		if (svgFile instanceof TFile) await this.plugin.app.vault.delete(svgFile);
 		this.leaf.detach();
-		new Notice(t('btn_delete'));
-	}
-
-	/* ---------- Manipolazione file .md ---------- */
-
-	private async archiveSvg() {
-		const svgFile = this.app.vault.getAbstractFileByPath(this.svgPath);
-		if (!(svgFile instanceof TFile)) return;
-		const now = new Date();
-		const pad = (n: number) => String(n).padStart(2, '0');
-		const ts = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
-			`_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
-		const dest = `${this.plugin.settings.svgFolder}/_converted`;
-		if (!this.app.vault.getAbstractFileByPath(dest)) await this.app.vault.createFolder(dest);
-		await this.app.vault.rename(svgFile, `${dest}/${ts}.svg`);
-	}
-
-	// Regex per trovare ![[svgPath]] nel file .md (nuovo formato wiki)
-	private wikiEmbedRegex(): RegExp {
-		const escaped = this.svgPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		return new RegExp(`\\n?!\\[\\[${escaped}\\]\\]\\n?`);
-	}
-
-	// Regex per trovare il code block legacy con l'id specifico
-	private codeBlockRegex(): RegExp {
-		const escaped = this.embedId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		return new RegExp(
-			'\\n?```handwriting\\n.*?"id"\\s*:\\s*"' + escaped + '".*?\\n```\\n?', 's'
-		);
-	}
-
-	// Applica una sostituzione sul file .md, tentando prima il formato
-	// wiki ![[svg]] e poi il code block legacy come fallback.
-	// markdown === null → rimozione; stringa → sostituzione con il testo.
-	private async replaceInMd(markdown: string | null) {
-		const mdFile = this.app.vault.getAbstractFileByPath(this.sourcePath);
-		if (!(mdFile instanceof TFile)) { new Notice('File markdown non trovato'); return; }
-
-		const content   = await this.app.vault.read(mdFile);
-		const wikiRegex = this.wikiEmbedRegex();
-		const cbRegex   = this.codeBlockRegex();
-		const repl      = markdown === null ? '\n' : '\n' + markdown + '\n';
-
-		// Prova prima il formato wiki; se non trova, prova il code block legacy
-		let updated = content.replace(wikiRegex, repl);
-		if (updated === content) updated = content.replace(cbRegex, repl);
-
-		if (updated !== content) await this.app.vault.modify(mdFile, updated);
-	}
-
-	private async replaceCodeBlock(markdown: string) {
-		await this.replaceInMd(markdown);
-	}
-
-	private async removeCodeBlock() {
-		await this.replaceInMd(null);
-	}
-
-	/* ---------- Helpers ---------- */
-
-	private mkBtn(parent: HTMLElement, icon: string, key: string): HTMLElement {
-		const label = t(key as any);
-		const btn = parent.createEl('button', { cls: 'hwm_btn', attr: { title: label } });
-		btn.setAttribute('data-hwm-key', key);
-		btn.innerHTML = ICONS[icon] ?? '';
-		return btn;
-	}
-
-	// Converte SVGElement → PNG base64 via canvas HTML temporaneo
-	private svgToPng(svgElement: SVGElement): Promise<string> {
-		return new Promise((resolve, reject) => {
-			const cvs = document.createElement('canvas');
-			const ctx = cvs.getContext('2d')!;
-			const img = new Image();
-			const blob = new Blob(
-				[new XMLSerializer().serializeToString(svgElement)],
-				{ type: 'image/svg+xml' }
-			);
-			const url = URL.createObjectURL(blob);
-			img.onload = () => {
-				cvs.width = img.width; cvs.height = img.height;
-				ctx.drawImage(img, 0, 0);
-				URL.revokeObjectURL(url);
-				resolve(cvs.toDataURL('image/png').split(',')[1]!);
-			};
-			img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('SVG → PNG fallito')); };
-			img.src = url;
-		});
+		new Notice(t('notice_deleted'));
 	}
 }
 
@@ -510,193 +486,61 @@ export class DrawingModal extends Modal {
 
 	private async buildEditor() {
 		const el = this.contentEl;
-		const isMobile = Platform.isMobile;
-		const isDark = resolveIsDark(this.plugin.settings.bgMode);
-		const bgColor = getEffectiveBgColor(this.plugin.settings);
-		const lineColor = getEffectiveLineColor(this.plugin.settings);
-		el.style.backgroundColor = bgColor;
 
-		// Top bar con toolbar centrata. La X nativa di Obsidian è nascosta via CSS
-		// (hwm_modal .modal-close-button); la chiusura avviene dal bottone X in toolbar.
-		const topbar = el.createDiv({ cls: 'hwm_editor-topbar hwm_editor-topbar--modal' });
-		if (isDark) topbar.classList.add('hwm_editor-topbar--dark');
-
-		const toolbar = topbar.createDiv({ cls: 'hwm_toolbar hwm_editor-toolbar' });
-		if (isDark) toolbar.classList.add('hwm_toolbar--dark');
-
-		const penBtn = this.mkBtn(toolbar, 'pencil', 'btn_pen');
-		penBtn.classList.add('hwm_active', 'hwm_pen-btn');
-		const eraserBtn = this.mkBtn(toolbar, 'eraser', 'btn_eraser');
-		eraserBtn.classList.add('hwm_eraser-btn');
-		toolbar.createDiv({ cls: 'hwm_separator' });
-
-		const colors = isDark
-			? ['#ffffff', '#60a5fa', '#f87171', '#4ade80']
-			: ['#000000', '#1e40af', '#dc2626', '#16a34a'];
-		const colorWrap = toolbar.createDiv({ cls: 'hwm_colors' });
-		const colorBtns: HTMLElement[] = [];
-		for (const c of colors) {
-			const btn = colorWrap.createEl('div', { cls: 'hwm_color-btn', attr: { title: c, role: 'button', tabindex: '0' } });
-			btn.style.backgroundColor = c;
-			for (const [k, v] of Object.entries({
-				width: '22px', height: '22px', 'min-width': '22px', 'min-height': '22px',
-				'border-radius': '50%', 'box-sizing': 'border-box', 'flex-shrink': '0'
-			})) btn.style.setProperty(k, v, 'important');
-			if (c === colors[0]) btn.classList.add('hwm_active');
-			colorBtns.push(btn);
-		}
-		toolbar.createDiv({ cls: 'hwm_separator' });
-
-		// Listener bgMode: aggiorna toolbar, pallini colore e sfondo canvas al cambio tema.
-		const lightColors = ['#000000', '#1e40af', '#dc2626', '#16a34a'];
-		const darkColors  = ['#ffffff', '#60a5fa', '#f87171', '#4ade80'];
-		this.bgModeListener = (bgMode: string) => {
-			const dark = resolveIsDark(bgMode);
-			topbar.classList.toggle('hwm_editor-topbar--dark', dark);
-			toolbar.classList.toggle('hwm_toolbar--dark', dark);
-			handle.classList.toggle('hwm_resize-handle--dark', dark);
-			el.style.backgroundColor = getEffectiveBgColor(this.plugin.settings);
-			// Aggiorna i pallini colore palette
-			const newColors = dark ? darkColors : lightColors;
-			colorBtns.forEach((btn, i) => {
-				btn.style.backgroundColor = newColors[i] ?? '';
-				btn.setAttribute('title', newColors[i] ?? '');
-			});
-			// Aggiorna sfondo e righe nel canvas
-			if (this.canvas) {
-				this.canvas.setBackground(
-					getEffectiveBgColor(this.plugin.settings),
-					getEffectiveLineColor(this.plugin.settings)
-				);
-			}
-		};
-		this.plugin.bgModeListeners.add(this.bgModeListener);
-
-		const undoBtn = this.mkBtn(toolbar, 'rotate-ccw', 'btn_undo');
-		undoBtn.classList.add('hwm_undo-btn');
-		const redoBtn = this.mkBtn(toolbar, 'rotate-cw', 'btn_redo');
-		redoBtn.classList.add('hwm_redo-btn');
-		const clearBtn = this.mkBtn(toolbar, 'trash', 'btn_clear');
-		clearBtn.classList.add('hwm_clear-btn');
-		toolbar.createDiv({ cls: 'hwm_separator' });
-
-		const convertBtn = this.mkBtn(toolbar, 'file-text', 'btn_convert');
-		convertBtn.classList.add('hwm_convert-btn');
-		const saveBtn = this.mkBtn(toolbar, 'save', 'btn_save');
-		saveBtn.classList.add('hwm_save-btn');
-		const deleteBtn = this.mkBtn(toolbar, 'file-x', 'btn_delete');
-		deleteBtn.classList.add('hwm_delete-btn');
-
-		// Bottone chiudi (X): nel topbar, posizionata a destra via CSS absolute
-		const closeBtn = this.mkBtn(topbar, 'x', 'btn_close');
-		closeBtn.classList.add('hwm_close-btn');
-		closeBtn.addEventListener('click', () => this.close());
-
-		const scrollWrap = el.createDiv({ cls: 'hwm_editor-scroll' });
-		const canvasWrap = scrollWrap.createDiv({ cls: 'hwm_canvas-wrap' });
-
-		const { strokes, canvasWidth: savedW, canvasHeight: savedH } = await this.loadStrokes();
-		const { canvasWidth, canvasHeight } = this.plugin.settings;
-		const w = savedW ?? canvasWidth;
-		const h = savedH ?? canvasHeight;
-		const debugFn = this.plugin.settings.debugMode ? (msg: string) => new Notice(msg, 3000) : null;
-
-		this.canvas = new DrawingCanvas(canvasWrap, w, h, canvasHeight, isMobile, debugFn);
-		this.canvas.setBackground(bgColor, lineColor);
-		this.canvas.setColor(colors[0]!);
-		if (isMobile) this.canvas.allowFingerScroll(scrollWrap);
-
-		if (strokes.length > 0) {
-			const remapped = strokes.map(s => ({ ...s, color: remapStrokeColor(s.color, this.plugin.settings.bgMode) }));
-			this.canvas.loadStrokes(remapped);
-		}
-
-		// Espande il canvas a tutta la larghezza del modal (elimina le bande laterali).
-		// requestAnimationFrame garantisce che il layout del modal sia pronto prima di misurarlo.
-		requestAnimationFrame(() => {
-			const displayW = scrollWrap.clientWidth;
-			if (this.canvas && displayW > canvasWidth) {
-				this.canvas.setDisplayWidth(displayW);
-			}
+		const { canvas, bgModeListener } = await buildEditorUI({
+			el,
+			plugin: this.plugin,
+			svgPath: this.svgPath,
+			embedId: this.embedId,
+			sourcePath: this.sourcePath,
+			// Chiude il modal (Obsidian gestisce il cleanup via onClose)
+			onClose: () => this.close(),
+			// Espande il canvas a tutta la larghezza del modal eliminando le bande laterali.
+			// requestAnimationFrame garantisce che il layout del modal sia pronto prima di misurarlo.
+			afterCanvas: (cv, scrollWrap, canvasWidth) => {
+				requestAnimationFrame(() => {
+					const displayW = scrollWrap.clientWidth;
+					if (displayW > canvasWidth) cv.setDisplayWidth(displayW);
+				});
+			},
+			doSave: () => this.saveSvg(),
+			doConvert: () => this.doConvert(),
+			doDelete: () => this.doDelete(),
 		});
 
-		const handle = scrollWrap.createDiv({ cls: 'hwm_resize-handle hwm_resize-handle--disabled' });
-		handle.createEl('span', { text: '⋯' });
-		handle.classList.toggle('hwm_resize-handle--dark', isDark);
+		this.canvas = canvas;
+		this.bgModeListener = bgModeListener;
 
-		// Auto-scroll solo se non si sta disegnando (stesso motivo del DrawingEditorView)
-		this.canvas.onResize(() => {
-			if (!this.canvas?.isPointerDown()) scrollWrap.scrollTop = scrollWrap.scrollHeight;
-		});
-
-		const cv = this.canvas;
-		penBtn.addEventListener('click', () => { cv.setMode('pen'); penBtn.classList.add('hwm_active'); eraserBtn.classList.remove('hwm_active'); });
-		eraserBtn.addEventListener('click', () => { cv.setMode('eraser'); eraserBtn.classList.add('hwm_active'); penBtn.classList.remove('hwm_active'); });
-		for (let i = 0; i < colorBtns.length; i++) {
-			colorBtns[i]!.addEventListener('click', () => {
-				colorBtns.forEach(b => b.classList.remove('hwm_active'));
-				colorBtns[i]!.classList.add('hwm_active');
-				cv.setColor(colors[i]!);
-				if (isMobile) updateColorSizes(toolbar.classList.contains('hwm_toolbar--compact'));
-			});
-		}
-		undoBtn.addEventListener('click', () => cv.undo());
-		redoBtn.addEventListener('click', () => cv.redo());
-		clearBtn.addEventListener('click', () => cv.clear());
-		convertBtn.addEventListener('click', () => this.doConvert());
-		saveBtn.addEventListener('click', async () => { await this.saveSvg(); new Notice('Salvato'); });
-		deleteBtn.addEventListener('click', () => this.doDelete());
-
-		cv.onChange(() => {
+		// Auto-save debounced (2s dopo l'ultimo cambiamento)
+		canvas.onChange(() => {
 			if (this.saveTimer) clearTimeout(this.saveTimer);
 			this.saveTimer = setTimeout(() => this.saveSvg(), 2000);
 		});
 	}
 
-	private async loadStrokes(): Promise<{ strokes: Stroke[]; canvasWidth: number | null; canvasHeight: number | null }> {
-		const file = this.app.vault.getAbstractFileByPath(this.svgPath);
-		if (file instanceof TFile) {
-			const content = await this.app.vault.read(file);
-			const m = content.match(/viewBox="0 0 (\d+) (\d+)"/);
-			return {
-				strokes: parseSvgStrokes(content),
-				canvasWidth:  m ? parseInt(m[1] ?? '0') : null,
-				canvasHeight: m ? parseInt(m[2] ?? '0') : null,
-			};
-		}
-		return { strokes: [], canvasWidth: null, canvasHeight: null };
-	}
-
 	private async saveSvg() {
 		if (!this.canvas) return;
-		const svg = strokesToSvg(this.canvas.getStrokes(), this.canvas.getWidth(), this.canvas.getHeight(),
-			this.canvas.getBgColor(), this.canvas.getLineColor());
-		const folder = this.svgPath.substring(0, this.svgPath.lastIndexOf('/'));
-		if (folder && !this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
-		const existing = this.app.vault.getAbstractFileByPath(this.svgPath);
-		if (existing instanceof TFile) { await this.app.vault.modify(existing, svg); }
-		else { await this.app.vault.create(this.svgPath, svg); }
-		this.plugin.refreshPreview(this.embedId, svg);
+		await saveSvgToDisk(this.canvas, this.svgPath, this.embedId, this.plugin);
 	}
 
 	private async doConvert() {
-		if (!this.canvas || this.canvas.getStrokes().length === 0) { new Notice('Nessun tratto da convertire'); return; }
+		if (!this.canvas || this.canvas.getStrokes().length === 0) { new Notice(t('error_no_strokes')); return; }
 		try {
-			new Notice('Riconoscimento in corso…');
+			new Notice(t('notice_recognizing'));
 			const svg = strokesToSvg(this.canvas.getStrokes(), this.canvas.getWidth(), this.canvas.getHeight(),
 				this.canvas.getBgColor(), this.canvas.getLineColor());
-			const svgEl = new DOMParser().parseFromString(svg, 'image/svg+xml').documentElement as unknown as SVGElement;
-			const base64 = await this.svgToPng(svgEl);
+			const svgEl  = new DOMParser().parseFromString(svg, 'image/svg+xml').documentElement as unknown as SVGElement;
+			const base64 = await svgToBase64Png(svgEl);
 			const recognizer = getRecognizer(this.plugin.settings.geminiApiKey, this.plugin.settings.ocrLanguages);
 			const rawText = await recognizer.recognize(base64);
-			if (!rawText.trim()) { new Notice('Nessun testo riconosciuto'); return; }
-			const markdown = parseMarkdown(rawText);
-			await this.archiveSvg();
-			await this.replaceCodeBlock(markdown);
+			if (!rawText.trim()) { new Notice(t('error_no_text')); return; }
+			const markdown = parseHandwritingToMarkdown(rawText);
+			await archiveSvgFile(this.svgPath, this.plugin);
+			await replaceInMdFile(this.sourcePath, this.svgPath, this.embedId, '\n' + markdown + '\n', this.plugin);
 			this.canvas.destroy(); this.canvas = null;
 			this.close();
-			new Notice('Conversione completata!');
-		} catch (e: unknown) { new Notice('Errore OCR: ' + (e instanceof Error ? e.message : String(e))); }
+			new Notice(t('notice_converted'));
+		} catch (e: unknown) { new Notice(t('error_ocr') + (e instanceof Error ? e.message : String(e))); }
 	}
 
 	// Overlay di conferma inline: nessun Modal annidato → nessun furto di focus
@@ -740,7 +584,6 @@ export class DrawingModal extends Modal {
 		};
 
 		// Registra il listener PRIMA di modificare il file, così non perdiamo l'evento.
-		// vault.on('modify') scatta con certezza quando removeCodeBlock() scrive il file.
 		const ref = this.app.vault.on('modify', (file) => {
 			if (file.path === srcPath) {
 				this.app.vault.offref(ref);
@@ -748,7 +591,7 @@ export class DrawingModal extends Modal {
 			}
 		});
 
-		await this.removeCodeBlock();
+		await replaceInMdFile(srcPath, this.svgPath, this.embedId, '\n', this.plugin);
 		const svgFile = this.app.vault.getAbstractFileByPath(this.svgPath);
 		if (svgFile instanceof TFile) await this.app.vault.delete(svgFile);
 
@@ -756,68 +599,6 @@ export class DrawingModal extends Modal {
 		setTimeout(() => { this.app.vault.offref(ref); doFocus(); }, 3000);
 
 		this.close();
-		new Notice(t('btn_delete'));
-	}
-
-	private async archiveSvg() {
-		const svgFile = this.app.vault.getAbstractFileByPath(this.svgPath);
-		if (!(svgFile instanceof TFile)) return;
-		const now = new Date(); const pad = (n: number) => String(n).padStart(2, '0');
-		const ts = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
-		const dest = `${this.plugin.settings.svgFolder}/_converted`;
-		if (!this.app.vault.getAbstractFileByPath(dest)) await this.app.vault.createFolder(dest);
-		await this.app.vault.rename(svgFile, `${dest}/${ts}.svg`);
-	}
-
-	// Regex per trovare ![[svgPath]] nel file .md (formato wiki)
-	private wikiEmbedRegex(): RegExp {
-		const esc = this.svgPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		return new RegExp(`\\n?!\\[\\[${esc}\\]\\]\\n?`);
-	}
-
-	// Regex per il code block legacy con l'id specifico
-	private codeBlockRegex(): RegExp {
-		const esc = this.embedId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		return new RegExp('\\n?```handwriting\\n.*?"id"\\s*:\\s*"' + esc + '".*?\\n```\\n?', 's');
-	}
-
-	// Applica sostituzione sul .md: prova prima formato wiki, poi legacy come fallback
-	private async replaceInMd(replacement: string) {
-		const mdFile = this.app.vault.getAbstractFileByPath(this.sourcePath);
-		if (!(mdFile instanceof TFile)) { new Notice('File markdown non trovato'); return; }
-		const content = await this.app.vault.read(mdFile);
-		let updated = content.replace(this.wikiEmbedRegex(), replacement);
-		if (updated === content) updated = content.replace(this.codeBlockRegex(), replacement);
-		if (updated !== content) await this.app.vault.modify(mdFile, updated);
-	}
-
-	private async replaceCodeBlock(markdown: string) {
-		await this.replaceInMd('\n' + markdown + '\n');
-	}
-
-	private async removeCodeBlock() {
-		await this.replaceInMd('\n');
-	}
-
-	private mkBtn(parent: HTMLElement, icon: string, key: string): HTMLElement {
-		const label = t(key as any);
-		const btn = parent.createEl('button', { cls: 'hwm_btn', attr: { title: label } });
-		btn.setAttribute('data-hwm-key', key);
-		btn.innerHTML = ICONS[icon] ?? '';
-		return btn;
-	}
-
-	private svgToPng(svgElement: SVGElement): Promise<string> {
-		return new Promise((resolve, reject) => {
-			const cvs = document.createElement('canvas');
-			const ctx = cvs.getContext('2d')!;
-			const img = new Image();
-			const blob = new Blob([new XMLSerializer().serializeToString(svgElement)], { type: 'image/svg+xml' });
-			const url = URL.createObjectURL(blob);
-			img.onload = () => { cvs.width = img.width; cvs.height = img.height; ctx.drawImage(img, 0, 0); URL.revokeObjectURL(url); resolve(cvs.toDataURL('image/png').split(',')[1]!); };
-			img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('SVG → PNG fallito')); };
-			img.src = url;
-		});
+		new Notice(t('notice_deleted'));
 	}
 }
-

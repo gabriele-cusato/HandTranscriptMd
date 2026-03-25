@@ -46,5 +46,15 @@
 	"btn_open_editor": "Otwórz edytor rysunku",
 	"confirm_delete": "Usunąć ten blok pisma odręcznego i powiązany plik SVG?",
 	"confirm_ok": "Usuń",
-	"confirm_cancel": "Anuluj"
+	"confirm_cancel": "Anuluj",
+	"notice_recognizing": "Rozpoznawanie…",
+	"error_no_strokes": "Brak kresek do konwersji",
+	"error_no_text": "Nie rozpoznano tekstu",
+	"error_file_not_found": "Nie znaleziono pliku Markdown",
+	"notice_deleted": "Blok usunięty",
+	"notice_saved": "Zapisano",
+	"notice_converted": "Konwersja zakończona!",
+	"error_ocr": "Błąd OCR: ",
+	"notice_placeholder_draw": "Użyj przycisku ołówka (prawy górny róg) do rysowania",
+	"notice_open_md_first": "Najpierw otwórz plik Markdown"
 }

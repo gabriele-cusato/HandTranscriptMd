@@ -361,12 +361,6 @@ export function parseHandwritingToMarkdown(rawOcrText: string): string {
 	return expandKeywords(normalizeMarkdownSymbols(rawOcrText));
 }
 
-/**
- * Alias di compatibilità con il codice pre-esistente che chiamava parseMarkdown().
- */
-export function parseMarkdown(raw: string): string {
-	return parseHandwritingToMarkdown(raw);
-}
 
 // =============================================================================
 // HELPER PRIVATI

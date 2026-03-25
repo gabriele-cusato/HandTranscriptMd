@@ -5,7 +5,9 @@
    per poter ricaricare e rieditare il disegno.
    ============================================= */
 
-import { Point, Stroke } from './drawing-canvas';
+import { TFile } from 'obsidian';
+import type HandwritingPlugin from './main';
+import { Point, Stroke, LINE_SPACING } from './drawing-canvas';
 
 // Genera ID univoco per nuovi disegni nel formato HTMD_YYYYMMDDHHMMSS_XXXX
 export function generateId(): string {
@@ -71,7 +73,6 @@ export function strokesToSvg(
 	const strokesJson = JSON.stringify(strokes);
 
 	// Righe orizzontali (foglio a righe) — stessa spaziatura del canvas
-	const LINE_SPACING = 32;
 	const lines: string[] = [];
 	for (let y = LINE_SPACING; y < height; y += LINE_SPACING) {
 		lines.push(`  <line x1="0" y1="${y}" x2="${width}" y2="${y}" stroke="${lineColor}" stroke-width="0.5"/>`);
@@ -124,4 +125,44 @@ function unescapeXml(s: string): string {
 		.replace(/&gt;/g, '>')
 		.replace(/&lt;/g, '<')
 		.replace(/&amp;/g, '&');
+}
+
+// Converte un SVGElement in PNG base64 via canvas HTML temporaneo.
+// Usato dalla pipeline OCR (embed.ts e editor-view.ts) prima di inviare a Gemini.
+export function svgToBase64Png(svgElement: SVGElement): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const cvs = document.createElement('canvas');
+		const ctx = cvs.getContext('2d')!;
+		const img = new Image();
+		const blob = new Blob(
+			[new XMLSerializer().serializeToString(svgElement)],
+			{ type: 'image/svg+xml' }
+		);
+		const url = URL.createObjectURL(blob);
+		img.onload = () => {
+			cvs.width = img.width; cvs.height = img.height;
+			ctx.drawImage(img, 0, 0);
+			URL.revokeObjectURL(url);
+			resolve(cvs.toDataURL('image/png').split(',')[1]!);
+		};
+		img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('SVG → PNG fallito')); };
+		img.src = url;
+	});
+}
+
+// Sposta il file SVG nella cartella _converted con nome timestamp.
+// Chiamata dopo la conversione OCR riuscita (embed.ts e editor-view.ts).
+export async function archiveSvgFile(svgPath: string, plugin: HandwritingPlugin): Promise<void> {
+	const svgFile = plugin.app.vault.getAbstractFileByPath(svgPath);
+	if (!(svgFile instanceof TFile)) return;
+
+	const now = new Date();
+	const p = (n: number) => String(n).padStart(2, '0');
+	const ts = `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}` +
+		`_${p(now.getHours())}-${p(now.getMinutes())}-${p(now.getSeconds())}`;
+	const destFolder = `${plugin.settings.svgFolder}/_converted`;
+	if (!plugin.app.vault.getAbstractFileByPath(destFolder)) {
+		await plugin.app.vault.createFolder(destFolder);
+	}
+	await plugin.app.vault.rename(svgFile, `${destFolder}/${ts}.svg`);
 }

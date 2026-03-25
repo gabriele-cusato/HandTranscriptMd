@@ -46,5 +46,15 @@
 	"btn_open_editor": "打开绘图编辑器",
 	"confirm_delete": "删除此手写块及关联的SVG文件？",
 	"confirm_ok": "删除",
-	"confirm_cancel": "取消"
+	"confirm_cancel": "取消",
+	"notice_recognizing": "识别中…",
+	"error_no_strokes": "没有可转换的笔划",
+	"error_no_text": "未识别到文本",
+	"error_file_not_found": "未找到Markdown文件",
+	"notice_deleted": "块已删除",
+	"notice_saved": "已保存",
+	"notice_converted": "转换完成！",
+	"error_ocr": "OCR错误：",
+	"notice_placeholder_draw": "使用右上角的铅笔按钮进行绘图",
+	"notice_open_md_first": "请先打开一个Markdown文件"
 }

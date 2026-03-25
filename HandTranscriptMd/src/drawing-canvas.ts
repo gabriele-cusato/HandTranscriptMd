@@ -20,6 +20,9 @@ export interface Stroke {
 
 export type DrawMode = 'pen' | 'eraser';
 
+// Spaziatura righe orizzontali — costante condivisa con svg-utils.ts
+export const LINE_SPACING = 32;
+
 // Deep copy di un array di Stroke
 function cloneStrokes(strokes: Stroke[]): Stroke[] {
 	return strokes.map(s => ({
@@ -54,8 +57,8 @@ export class DrawingCanvas {
 	// Altezza di default delle settings (usata per reset su clear)
 	private defaultHeight: number;
 
-	// Righe e sfondo
-	readonly LINE_SPACING = 32;
+	// Righe e sfondo — usa la costante esportata del modulo
+	readonly LINE_SPACING = LINE_SPACING;
 	private bgColor = '#ffffff';
 	private lineColor = '#e0e0e0';
 
@@ -68,6 +71,8 @@ export class DrawingCanvas {
 	private boundDown: (e: PointerEvent) => void;
 	private boundMove: (e: PointerEvent) => void;
 	private boundUp: (e: PointerEvent) => void;
+	// Cleanup per i listener aggiuntivi di allowFingerScroll()
+	private fingerScrollCleanup: (() => void) | null = null;
 	// Callback debug: se impostato, mostra Notice all'utente per ogni evento IME/touch
 	private debugFn: ((msg: string) => void) | null = null;
 
@@ -158,26 +163,36 @@ export class DrawingCanvas {
 		let startY = 0;
 		let startScroll = 0;
 
-		this.canvas.addEventListener('pointerdown', (e: PointerEvent) => {
+		// Listener con riferimento nominale → possono essere rimossi in destroy()
+		const onDown = (e: PointerEvent) => {
 			if ((e.pointerType || 'pen') !== 'touch') return;
 			scrolling = true;
 			startY = e.clientY;
 			startScroll = scrollContainer.scrollTop;
 			this.canvas.setPointerCapture(e.pointerId);
-		});
-
-		this.canvas.addEventListener('pointermove', (e: PointerEvent) => {
+		};
+		const onMove = (e: PointerEvent) => {
 			if (!scrolling || (e.pointerType || 'pen') !== 'touch') return;
 			e.preventDefault();
 			scrollContainer.scrollTop = startScroll + (startY - e.clientY);
-		});
-
-		const stop = (e: PointerEvent) => {
+		};
+		const onStop = (e: PointerEvent) => {
 			if ((e.pointerType || 'pen') !== 'touch') return;
 			scrolling = false;
 		};
-		this.canvas.addEventListener('pointerup', stop);
-		this.canvas.addEventListener('pointerleave', stop);
+
+		this.canvas.addEventListener('pointerdown', onDown);
+		this.canvas.addEventListener('pointermove', onMove);
+		this.canvas.addEventListener('pointerup', onStop);
+		this.canvas.addEventListener('pointerleave', onStop);
+
+		// Registra la funzione di cleanup per destroy()
+		this.fingerScrollCleanup = () => {
+			this.canvas.removeEventListener('pointerdown', onDown);
+			this.canvas.removeEventListener('pointermove', onMove);
+			this.canvas.removeEventListener('pointerup', onStop);
+			this.canvas.removeEventListener('pointerleave', onStop);
+		};
 	}
 
 	setMode(mode: DrawMode) { this.mode = mode; }
@@ -258,6 +273,8 @@ export class DrawingCanvas {
 		this.canvas.removeEventListener('pointermove', this.boundMove);
 		this.canvas.removeEventListener('pointerup', this.boundUp);
 		this.canvas.removeEventListener('pointerleave', this.boundUp);
+		// Rimuove i listener aggiuntivi per lo scroll con il dito (se impostati)
+		this.fingerScrollCleanup?.();
 	}
 
 	/* --- History --- */

@@ -46,5 +46,15 @@
 	"btn_open_editor": "Apri editor disegno",
 	"confirm_delete": "Eliminare questo riquadro handwriting e il file SVG associato?",
 	"confirm_ok": "Elimina",
-	"confirm_cancel": "Annulla"
+	"confirm_cancel": "Annulla",
+	"notice_recognizing": "Riconoscimento in corso…",
+	"error_no_strokes": "Nessun tratto da convertire",
+	"error_no_text": "Nessun testo riconosciuto",
+	"error_file_not_found": "File markdown non trovato",
+	"notice_deleted": "Riquadro eliminato",
+	"notice_saved": "Salvato",
+	"notice_converted": "Conversione completata!",
+	"error_ocr": "Errore OCR: ",
+	"notice_placeholder_draw": "Usa il bottone matita in alto a destra per disegnare",
+	"notice_open_md_first": "Apri un file markdown prima"
 }

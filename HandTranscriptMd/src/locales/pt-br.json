@@ -46,5 +46,15 @@
 	"btn_open_editor": "Abrir editor de desenho",
 	"confirm_delete": "Excluir este bloco de manuscrito e o arquivo SVG associado?",
 	"confirm_ok": "Excluir",
-	"confirm_cancel": "Cancelar"
+	"confirm_cancel": "Cancelar",
+	"notice_recognizing": "Reconhecendo…",
+	"error_no_strokes": "Nenhum traço para converter",
+	"error_no_text": "Nenhum texto reconhecido",
+	"error_file_not_found": "Arquivo Markdown não encontrado",
+	"notice_deleted": "Bloco excluído",
+	"notice_saved": "Salvo",
+	"notice_converted": "Conversão concluída!",
+	"error_ocr": "Erro OCR: ",
+	"notice_placeholder_draw": "Use o botão lápis (canto superior direito) para desenhar",
+	"notice_open_md_first": "Abra primeiro um arquivo Markdown"
 }

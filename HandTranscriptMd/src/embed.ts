@@ -29,10 +29,10 @@ const ICONS: Record<string, string> = {
 import type HandwritingPlugin from './main';
 import { t } from './i18n';
 import { Stroke } from './drawing-canvas';
-import { strokesToSvg, parseSvgStrokes, generateId } from './svg-utils';
-import { getEffectiveBgColor, getEffectiveLineColor, remapStrokeColor, BgMode } from './settings';
+import { strokesToSvg, parseSvgStrokes, generateId, svgToBase64Png, archiveSvgFile } from './svg-utils';
+import { getEffectiveBgColor, getEffectiveLineColor, remapStrokeColor, BgMode, resolveIsDark } from './settings';
 import { getRecognizer } from './recognizer';
-import { parseMarkdown } from './md-parser';
+import { parseHandwritingToMarkdown } from './md-parser';
 import { VIEW_TYPE_HANDWRITING, DrawingEditorView, DrawingModal } from './editor-view';
 
 // Dati JSON salvati dentro il code block ```handwriting (formato legacy)
@@ -302,7 +302,7 @@ function showLegacyPreview(
 	convertBtn.addEventListener('click', async (e) => {
 		e.stopPropagation();
 		if (!currentSvgContent || currentStrokes.length === 0) {
-			new Notice('Nessun tratto da convertire');
+			new Notice(t('error_no_strokes'));
 			return;
 		}
 		await doConvert(currentSvgContent, data, ctx, plugin);
@@ -329,8 +329,28 @@ function renderPreviewContent(preview: HTMLElement, svgContent: string | null) {
 		const svgH = m ? parseInt(m[2]!) : 300;
 		div.style.paddingBottom = (svgH / svgW * 100) + '%';
 	} else {
-		preview.createDiv({ cls: 'hwm_placeholder', text: 'Usa il bottone matita in alto a destra per disegnare' });
+		preview.createDiv({ cls: 'hwm_placeholder', text: t('notice_placeholder_draw') });
 	}
+}
+
+/* =============================================
+   Pipeline OCR comune (wiki + legacy)
+   ============================================= */
+
+// Esegue il riconoscimento OCR su un SVG e restituisce il testo markdown.
+// Lancia eccezione in caso di errore — il chiamante decide se catturarla o propagarla.
+async function runOcrPipeline(svgContent: string, plugin: HandwritingPlugin): Promise<string> {
+	new Notice(t('notice_recognizing'));
+	const svgEl = new DOMParser()
+		.parseFromString(svgContent, 'image/svg+xml')
+		.documentElement as unknown as SVGElement;
+	const base64     = await svgToBase64Png(svgEl);
+	const recognizer = getRecognizer(plugin.settings.geminiApiKey, plugin.settings.ocrLanguages);
+	const rawText    = await recognizer.recognize(base64);
+	if (!rawText.trim()) throw new Error(t('error_no_text'));
+	// In modalità debug mostra il testo grezzo restituito da Gemini (prima del parsing)
+	if (plugin.settings.debugMode) new Notice(`[DEBUG] Testo grezzo Gemini:\n${rawText}`, 30000);
+	return parseHandwritingToMarkdown(rawText);
 }
 
 /* =============================================
@@ -344,20 +364,10 @@ async function doConvertWiki(
 	plugin: HandwritingPlugin
 ) {
 	// Lancia eccezione in caso di errore (il chiamante decide se mostrare Notice o propagare)
-	new Notice('Riconoscimento in corso…');
-	const parser = new DOMParser();
-	const svgEl  = parser.parseFromString(svgContent, 'image/svg+xml')
-		.documentElement as unknown as SVGElement;
-	const base64     = await svgToBase64Png(svgEl);
-	const recognizer = getRecognizer(plugin.settings.geminiApiKey, plugin.settings.ocrLanguages);
-	const rawText    = await recognizer.recognize(base64);
-	if (!rawText.trim()) throw new Error('Nessun testo riconosciuto');
-	const markdown = parseMarkdown(rawText);
-	// In modalità debug mostra il testo grezzo restituito da Gemini (prima del parsing)
-	if (plugin.settings.debugMode) new Notice(`[DEBUG] Testo grezzo Gemini:\n${rawText}`, 30000);
-	await archiveSvgByPath(svgPath, plugin);
+	const markdown = await runOcrPipeline(svgContent, plugin);
+	await archiveSvgFile(svgPath, plugin);
 	await replaceWikiEmbedWithMarkdown(svgPath, markdown, sourcePath, plugin);
-	new Notice('Conversione completata!');
+	new Notice(t('notice_converted'));
 }
 
 /* =============================================
@@ -371,23 +381,12 @@ async function doConvert(
 	plugin: HandwritingPlugin
 ) {
 	try {
-		new Notice('Riconoscimento in corso…');
-		const parser = new DOMParser();
-		const svgEl  = parser.parseFromString(svgContent, 'image/svg+xml')
-			.documentElement as unknown as SVGElement;
-		const base64     = await svgToBase64Png(svgEl);
-		const recognizer = getRecognizer(plugin.settings.geminiApiKey, plugin.settings.ocrLanguages);
-		const rawText    = await recognizer.recognize(base64);
-		if (!rawText.trim()) { new Notice('Nessun testo riconosciuto'); return; }
-
-		const markdown = parseMarkdown(rawText);
-		// In modalità debug mostra il testo grezzo restituito da Gemini (prima del parsing)
-		if (plugin.settings.debugMode) new Notice(`[DEBUG] Testo grezzo Gemini:\n${rawText}`, 30000);
-		await archiveSvg(data, plugin);
+		const markdown = await runOcrPipeline(svgContent, plugin);
+		await archiveSvgFile(data.svg, plugin);
 		await replaceEmbedWithMarkdown(ctx, data, markdown, plugin);
-		new Notice('Conversione completata!');
+		new Notice(t('notice_converted'));
 	} catch (e: unknown) {
-		new Notice('Errore OCR: ' + (e instanceof Error ? e.message : String(e)));
+		new Notice(t('error_ocr') + (e instanceof Error ? e.message : String(e)));
 	}
 }
 
@@ -442,7 +441,7 @@ async function removeWikiEmbed(
 	plugin: HandwritingPlugin
 ) {
 	const mdFile = plugin.app.vault.getAbstractFileByPath(sourcePath);
-	if (!(mdFile instanceof TFile)) { new Notice('File markdown non trovato'); return; }
+	if (!(mdFile instanceof TFile)) { new Notice(t('error_file_not_found')); return; }
 
 	const content = await plugin.app.vault.read(mdFile);
 	const updated = content.replace(wikiEmbedRegex(svgPath), '\n');
@@ -452,7 +451,7 @@ async function removeWikiEmbed(
 	const svgFile = plugin.app.vault.getAbstractFileByPath(svgPath);
 	if (svgFile instanceof TFile) await plugin.app.vault.delete(svgFile);
 
-	new Notice('Riquadro eliminato');
+	new Notice(t('notice_deleted'));
 }
 
 // Rimuove il code block legacy dal .md e cancella il file SVG
@@ -462,7 +461,7 @@ async function removeLegacyEmbed(
 	plugin: HandwritingPlugin
 ) {
 	const mdFile = plugin.app.vault.getAbstractFileByPath(ctx.sourcePath);
-	if (!(mdFile instanceof TFile)) { new Notice('File markdown non trovato'); return; }
+	if (!(mdFile instanceof TFile)) { new Notice(t('error_file_not_found')); return; }
 
 	const content = await plugin.app.vault.read(mdFile);
 	const updated = content.replace(codeBlockRegex(data.id), '\n');
@@ -471,37 +470,7 @@ async function removeLegacyEmbed(
 	const svgFile = plugin.app.vault.getAbstractFileByPath(data.svg);
 	if (svgFile instanceof TFile) await plugin.app.vault.delete(svgFile);
 
-	new Notice('Riquadro eliminato');
-}
-
-/* =============================================
-   Archivia SVG dopo conversione
-   ============================================= */
-
-async function archiveSvgByPath(svgPath: string, plugin: HandwritingPlugin) {
-	const svgFile = plugin.app.vault.getAbstractFileByPath(svgPath);
-	if (!(svgFile instanceof TFile)) return;
-	await _moveSvgToConverted(svgFile, plugin);
-}
-
-async function archiveSvg(data: EmbedData, plugin: HandwritingPlugin) {
-	const svgFile = plugin.app.vault.getAbstractFileByPath(data.svg);
-	if (!(svgFile instanceof TFile)) return;
-	await _moveSvgToConverted(svgFile, plugin);
-}
-
-// Sposta il file SVG nella cartella _converted con nome timestamp
-async function _moveSvgToConverted(svgFile: TFile, plugin: HandwritingPlugin) {
-	const now = new Date();
-	const pad = (n: number) => String(n).padStart(2, '0');
-	const ts  = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
-		`_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
-
-	const destFolder = `${plugin.settings.svgFolder}/_converted`;
-	if (!plugin.app.vault.getAbstractFileByPath(destFolder)) {
-		await plugin.app.vault.createFolder(destFolder);
-	}
-	await plugin.app.vault.rename(svgFile, `${destFolder}/${ts}.svg`);
+	new Notice(t('notice_deleted'));
 }
 
 /* =============================================
@@ -515,7 +484,7 @@ async function replaceWikiEmbedWithMarkdown(
 	plugin: HandwritingPlugin
 ) {
 	const mdFile = plugin.app.vault.getAbstractFileByPath(sourcePath);
-	if (!(mdFile instanceof TFile)) { new Notice('File markdown non trovato'); return; }
+	if (!(mdFile instanceof TFile)) { new Notice(t('error_file_not_found')); return; }
 
 	const content = await plugin.app.vault.read(mdFile);
 	const updated = content.replace(wikiEmbedRegex(svgPath), '\n' + markdown + '\n');
@@ -529,7 +498,7 @@ async function replaceEmbedWithMarkdown(
 	plugin: HandwritingPlugin
 ) {
 	const mdFile = plugin.app.vault.getAbstractFileByPath(ctx.sourcePath);
-	if (!(mdFile instanceof TFile)) { new Notice('File markdown non trovato'); return; }
+	if (!(mdFile instanceof TFile)) { new Notice(t('error_file_not_found')); return; }
 
 	const content = await plugin.app.vault.read(mdFile);
 	const updated = content.replace(codeBlockRegex(data.id), '\n' + markdown + '\n');
@@ -544,7 +513,7 @@ async function replaceEmbedWithMarkdown(
 export async function insertHandwritingBlock(plugin: HandwritingPlugin) {
 	const view = plugin.app.workspace.getActiveViewOfType(MarkdownView);
 	if (!view) {
-		new Notice('Apri un file markdown prima');
+		new Notice(t('notice_open_md_first'));
 		return;
 	}
 
@@ -600,10 +569,6 @@ function createPortalPanel(
 	sourcePath: string,
 	plugin: HandwritingPlugin
 ) {
-	// Risolve il tema effettivo tenendo conto di 'auto'
-	const resolveIsDark = (bgMode: string) =>
-		bgMode === 'auto' ? document.body.classList.contains('theme-dark') : bgMode === 'dark';
-
 	const isDark = resolveIsDark(plugin.settings.bgMode);
 	const collapsedHeight = plugin.settings.canvasHeight;
 	let isExpanded = true;
@@ -826,7 +791,7 @@ function createLegacyPortalButton(
 	const btn = document.createElement('button');
 	btn.className = 'hwm_portal-btn';
 	btn.innerHTML = ICONS['pencil'] ?? '';
-	btn.title = 'Apri editor disegno';
+	btn.title = t('btn_open_editor');
 	document.body.appendChild(btn);
 
 	// Apre la tab editor al click
@@ -874,27 +839,3 @@ function createBtn(parent: HTMLElement, icon: string, key: string): HTMLElement 
 	return btn;
 }
 
-function svgToBase64Png(svgElement: SVGElement): Promise<string> {
-	return new Promise((resolve, reject) => {
-		const canvas = document.createElement('canvas');
-		const ctx    = canvas.getContext('2d')!;
-		const img    = new Image();
-		const svgBlob = new Blob(
-			[new XMLSerializer().serializeToString(svgElement)],
-			{ type: 'image/svg+xml' }
-		);
-		const url = URL.createObjectURL(svgBlob);
-		img.onload = () => {
-			canvas.width  = img.width;
-			canvas.height = img.height;
-			ctx.drawImage(img, 0, 0);
-			URL.revokeObjectURL(url);
-			resolve(canvas.toDataURL('image/png').split(',')[1]!);
-		};
-		img.onerror = () => {
-			URL.revokeObjectURL(url);
-			reject(new Error('Errore conversione SVG → PNG'));
-		};
-		img.src = url;
-	});
-}

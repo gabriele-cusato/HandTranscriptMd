@@ -46,5 +46,15 @@
 	"btn_open_editor": "Открыть редактор рисунков",
 	"confirm_delete": "Удалить этот блок рукописного ввода и связанный файл SVG?",
 	"confirm_ok": "Удалить",
-	"confirm_cancel": "Отмена"
+	"confirm_cancel": "Отмена",
+	"notice_recognizing": "Распознавание…",
+	"error_no_strokes": "Нет штрихов для конвертации",
+	"error_no_text": "Текст не распознан",
+	"error_file_not_found": "Файл Markdown не найден",
+	"notice_deleted": "Блок удалён",
+	"notice_saved": "Сохранено",
+	"notice_converted": "Конвертация завершена!",
+	"error_ocr": "Ошибка OCR: ",
+	"notice_placeholder_draw": "Используйте кнопку карандаша (вверху справа) для рисования",
+	"notice_open_md_first": "Сначала откройте файл Markdown"
 }

@@ -46,5 +46,15 @@
 	"btn_open_editor": "Zeichnungseditor öffnen",
 	"confirm_delete": "Diesen Handschrift-Block und die zugehörige SVG-Datei löschen?",
 	"confirm_ok": "Löschen",
-	"confirm_cancel": "Abbrechen"
+	"confirm_cancel": "Abbrechen",
+	"notice_recognizing": "Erkenne…",
+	"error_no_strokes": "Keine Striche zum Konvertieren",
+	"error_no_text": "Kein Text erkannt",
+	"error_file_not_found": "Markdown-Datei nicht gefunden",
+	"notice_deleted": "Block gelöscht",
+	"notice_saved": "Gespeichert",
+	"notice_converted": "Konvertierung abgeschlossen!",
+	"error_ocr": "OCR-Fehler: ",
+	"notice_placeholder_draw": "Verwende den Bleistift-Button (oben rechts) zum Zeichnen",
+	"notice_open_md_first": "Öffne zuerst eine Markdown-Datei"
 }

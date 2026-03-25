@@ -46,5 +46,15 @@
 	"btn_open_editor": "Abrir editor de dibujo",
 	"confirm_delete": "¿Eliminar este bloque de escritura a mano y el archivo SVG asociado?",
 	"confirm_ok": "Eliminar",
-	"confirm_cancel": "Cancelar"
+	"confirm_cancel": "Cancelar",
+	"notice_recognizing": "Reconociendo…",
+	"error_no_strokes": "No hay trazos para convertir",
+	"error_no_text": "No se reconoció texto",
+	"error_file_not_found": "Archivo Markdown no encontrado",
+	"notice_deleted": "Bloque eliminado",
+	"notice_saved": "Guardado",
+	"notice_converted": "¡Conversión completada!",
+	"error_ocr": "Error OCR: ",
+	"notice_placeholder_draw": "Usa el botón lápiz (arriba a la derecha) para dibujar",
+	"notice_open_md_first": "Abre primero un archivo Markdown"
 }

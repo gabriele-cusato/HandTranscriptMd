@@ -28,3 +28,22 @@ obsidian_ink/
 
 # Cartella C creata per errore dai vecchi script deploy (bug MSYS path conversion)
 HandTranscriptMd/C*/
+
+# Build output — included only in GitHub Releases, not in source
+main.js
+main.js.map
+
+# Dependencies
+node_modules/
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Development-only / internal files — kept locally, not published
+AGENTS.md
+CLAUDE.md
+NOTES.md
+obsidianGuide.md
+deploy.sh
+cloudDeploy.sh

@@ -46,5 +46,15 @@
 	"btn_open_editor": "描画エディタを開く",
 	"confirm_delete": "この手書きブロックと関連するSVGファイルを削除しますか？",
 	"confirm_ok": "削除",
-	"confirm_cancel": "キャンセル"
+	"confirm_cancel": "キャンセル",
+	"notice_recognizing": "認識中…",
+	"error_no_strokes": "変換するストロークがありません",
+	"error_no_text": "テキストが認識されませんでした",
+	"error_file_not_found": "Markdownファイルが見つかりません",
+	"notice_deleted": "ブロックを削除しました",
+	"notice_saved": "保存しました",
+	"notice_converted": "変換が完了しました！",
+	"error_ocr": "OCRエラー: ",
+	"notice_placeholder_draw": "右上の鉛筆ボタンを使って描画してください",
+	"notice_open_md_first": "先にMarkdownファイルを開いてください"
 }
