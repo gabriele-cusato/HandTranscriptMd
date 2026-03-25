@@ -123,8 +123,6 @@ Open **Settings → Handwriting to Markdown** to configure:
 | **Canvas background** | Light / Dark / Auto (follows Obsidian theme) |
 | **Gemini API key** | Required for OCR. Get it free at [aistudio.google.com](https://aistudio.google.com). |
 | **OCR languages** | Comma-separated BCP-47 codes (e.g. `it, en, fr`). Tells Gemini which languages to expect. |
-| **Debug mode** | Shows real-time notifications for IME/touch events (useful for Android troubleshooting) |
-| **Handwriting mode (Android)** | If ON, collapses all drawing previews to 48 px thumbnails so the stylus can write freely in the surrounding text |
 
 ---
 
@@ -138,7 +136,6 @@ Open **Settings → Handwriting to Markdown** to configure:
 | Editor opens as modal | ✅ | — |
 | Editor opens as new tab | — | ✅ |
 | Collapse/expand preview | ✅ | ✅ |
-| Handwriting mode toggle | — | ✅ (recommended) |
 
 ---
 

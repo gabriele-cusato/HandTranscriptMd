@@ -25,6 +25,7 @@ data.json
 obsidian_ink/
 
 .vs/
+.claude/
 
 # Cartella C creata per errore dai vecchi script deploy (bug MSYS path conversion)
 HandTranscriptMd/C*/
