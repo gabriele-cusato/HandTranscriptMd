@@ -315,17 +315,22 @@ export function expandKeywords(text: string, fnStart = 1): string {
 			// --- TABLE multi-riga ---
 			// Header: //TABLE Col1, Col2, Col3
 			// Righe:  val1, val2, val3  (una per riga, virgola come separatore)
-			// Fine:   //TABLE  (tag di chiusura) oppure riga vuota / senza virgola
+			// Fine:   //TABLE  (tag di chiusura) oppure riga vuota
 			case 'TABLE': {
 				const headers = content.split(',').map(h => h.trim());
 				const rows: string[][] = [];
 				i++;
 				while (i < lines.length) {
 					const rowLine = lines[i].trim();
-					// Tag di chiusura: "<TABLE>" senza contenuto
-					if (/^\/\/TABLE\s*$/i.test(rowLine)) { i++; break; }
-					// Fine implicita: riga vuota o riga senza virgola
-					if (!rowLine || !rowLine.includes(',')) break;
+					// Chiusura esplicita: //TABLE (anche con rumore OCR dopo, es. //TABLE. //TABLE:)
+					// \b garantisce che "TABLE" sia seguito da fine parola, non da altre lettere
+					if (/^\/\/TABLE\b/i.test(rowLine)) { i++; break; }
+					// Qualsiasi altra keyword chiude implicitamente senza consumarla
+					if (/^\/\//.test(rowLine)) break;
+					// Fine implicita: riga vuota
+					if (!rowLine) break;
+					// Riga con o senza virgola: trattata comunque come riga dati
+					// (evita interruzione prematura per righe OCR con cella singola)
 					rows.push(rowLine.split(',').map(c => c.trim()));
 					i++;
 				}

@@ -223,6 +223,11 @@ cd C:\Projects\pluginObsidian\handWrittenMarkdownConverter\HandTranscriptMd; nod
 
 ### Task aperti
 
+- **Bug parser `//TABLE`** — `src/md-parser.ts`:
+  - Durante un test OCR il tag di chiusura `//TABLE` è stato riconosciuto come tag di apertura di una nuova tabella, invece di terminare quella corrente
+  - I valori delle celle non sono stati inseriti nella tabella
+  - Verificare la logica di parsing delle righe successive al tag `//TABLE`: probabilmente una riga contenente solo `//TABLE` (o simile) viene re-interpretata come nuovo comando invece di essere ignorata/consumata
+
 - **Keyword personalizzate nelle impostazioni** — `src/settings.ts` + `src/md-parser.ts`:
   - Permettere all'utente di aggiungere keyword custom nella pagina impostazioni
   - Ogni keyword custom ha: nome (es. `FIRMA`), output markdown (es. `— Mario Rossi`)
