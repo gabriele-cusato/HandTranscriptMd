@@ -574,6 +574,7 @@ function createPortalPanel(
 	let isExpanded = true;
 	// Flag per nascondere il pannello quando il modal (Desktop) è aperto
 	let modalOpen = false;
+	let isConverting = false; // true mentre OCR e' in corso (o errore non ancora confermato)
 
 	// Lo span diventa position: relative per ancorarvi il pannello (position: absolute).
 	container.style.position = 'relative';
@@ -699,21 +700,55 @@ function createPortalPanel(
 		collapseBtn.title = t('btn_expand');
 		collapseBtn.setAttribute('data-hwm-key', 'btn_expand');
 	};
-	// Carica SVG e chiama doConvertWiki (che lancia eccezione in caso di errore)
+	// Overlay di conversione: spinner mentre OCR e' in corso,
+	// poi errore + OK se Gemini fallisce.
+	// Nasconde il pannello portale (come modalOpen) per bloccare tutti i click.
+	const showConvertOverlay = (): HTMLElement => {
+		// Nasconde il pannello: stessa logica di modalOpen (evita click sui bottoni durante OCR)
+		panel.style.display = 'none';
+		const overlay = document.createElement('div');
+		overlay.className = 'hwm_convert-overlay';
+		const spinner = document.createElement('div');
+		spinner.className = 'hwm_spinner';
+		overlay.appendChild(spinner);
+		container.appendChild(overlay);
+		return overlay;
+	};
+
+	// Rimuove overlay e ripristina il pannello portale
+	const removeConvertOverlay = (overlay: HTMLElement) => {
+		overlay.remove();
+		if (container.isConnected) panel.style.display = '';
+		isConverting = false;
+	};
+
+	// Avvia la conversione OCR con overlay. Non lancia eccezioni:
+	// gli errori vengono mostrati nell'overlay stesso con pulsante OK.
 	const doConvertAction = async () => {
-		const { strokes, svgContent } = await loadSvgData(svgPath, plugin);
-		if (!svgContent || strokes.length === 0) throw new Error('Nessun tratto da convertire');
-		await doConvertWiki(svgContent, svgPath, sourcePath, plugin);
+		if (isConverting) return; // skip se gia' in corso (usato anche da 'converti tutti')
+		isConverting = true;
+		const overlay = showConvertOverlay();
+		try {
+			const { strokes, svgContent } = await loadSvgData(svgPath, plugin);
+			if (!svgContent || strokes.length === 0) throw new Error(t('error_no_strokes'));
+			await doConvertWiki(svgContent, svgPath, sourcePath, plugin);
+			// Successo: rimuove overlay e ripristina pannello
+			removeConvertOverlay(overlay);
+		} catch (e: unknown) {
+			// Errore: sostituisce lo spinner con messaggio + OK
+			overlay.empty();
+			const msg = e instanceof Error ? e.message : String(e);
+			overlay.createEl('p', { text: msg, cls: 'hwm_convert-error-msg' });
+			const okBtn = overlay.createEl('button', { text: 'OK', cls: 'hwm_convert-ok-btn mod-warning' });
+			// L'overlay resta visibile finche' l'utente non clicca OK
+			okBtn.addEventListener('click', () => removeConvertOverlay(overlay), { once: true });
+		}
 	};
 
 	collapseBtn.addEventListener('click', () => {
 		if (isExpanded) doCollapse(); else doExpand();
 	});
-	convertBtn.addEventListener('click', async () => {
-		// Bottone singolo: mostra Notice in caso di errore senza propagare
-		try { await doConvertAction(); }
-		catch (e: unknown) { new Notice('Errore OCR: ' + (e instanceof Error ? e.message : String(e))); }
-	});
+	convertBtn.addEventListener('click', () => doConvertAction());
 
 	// Registra le azioni nel plugin per il menu "⋮ Espandi/Collassa/Converti tutti"
 	plugin.embedActions.set(embedId, { expand: doExpand, collapse: doCollapse, convert: doConvertAction, container, sourcePath });

@@ -401,27 +401,35 @@ export class DrawingEditorView extends ItemView {
 		await saveSvgToDisk(this.canvas, this.svgPath, this.embedId, this.plugin);
 	}
 
-	private async doConvert() {
+		private async doConvert() {
 		if (!this.canvas || this.canvas.getStrokes().length === 0) {
 			new Notice(t('error_no_strokes')); return;
 		}
+		// Overlay a tutto schermo sull'editor: spinner + blocco interazione
+		const overlay = this.contentEl.createDiv({ cls: 'hwm_confirm-overlay hwm_convert-overlay--editor' });
+		overlay.createDiv({ cls: 'hwm_spinner' });
 		try {
-			new Notice(t('notice_recognizing'));
 			const svg = strokesToSvg(this.canvas.getStrokes(), this.canvas.getWidth(),
 				this.canvas.getHeight(), this.canvas.getBgColor(), this.canvas.getLineColor());
 			const svgEl  = new DOMParser().parseFromString(svg, 'image/svg+xml').documentElement as unknown as SVGElement;
 			const base64 = await svgToBase64Png(svgEl);
 			const recognizer = getRecognizer(this.plugin.settings.geminiApiKey, this.plugin.settings.ocrLanguages);
 			const rawText = await recognizer.recognize(base64);
-			if (!rawText.trim()) { new Notice(t('error_no_text')); return; }
+			if (!rawText.trim()) throw new Error(t('error_no_text'));
 			const markdown = parseHandwritingToMarkdown(rawText);
 			await archiveSvgFile(this.svgPath, this.plugin);
 			await replaceInMdFile(this.sourcePath, this.svgPath, this.embedId, '\n' + markdown + '\n', this.plugin);
+			overlay.remove();
 			this.canvas.destroy(); this.canvas = null;
 			this.leaf.detach();
 			new Notice(t('notice_converted'));
 		} catch (e: unknown) {
-			new Notice(t('error_ocr') + (e instanceof Error ? e.message : String(e)));
+			// Errore: sostituisce lo spinner con messaggio + OK
+			overlay.empty();
+			const msg = e instanceof Error ? e.message : String(e);
+			overlay.createEl('p', { text: msg, cls: 'hwm_convert-error-msg' });
+			const okBtn = overlay.createEl('button', { text: 'OK', cls: 'hwm_convert-ok-btn mod-warning' });
+			okBtn.addEventListener('click', () => overlay.remove(), { once: true });
 		}
 	}
 
@@ -523,24 +531,34 @@ export class DrawingModal extends Modal {
 		await saveSvgToDisk(this.canvas, this.svgPath, this.embedId, this.plugin);
 	}
 
-	private async doConvert() {
+		private async doConvert() {
 		if (!this.canvas || this.canvas.getStrokes().length === 0) { new Notice(t('error_no_strokes')); return; }
+		// Overlay a tutto schermo sul modal: spinner + blocco interazione
+		const overlay = this.contentEl.createDiv({ cls: 'hwm_confirm-overlay hwm_convert-overlay--editor' });
+		overlay.createDiv({ cls: 'hwm_spinner' });
 		try {
-			new Notice(t('notice_recognizing'));
 			const svg = strokesToSvg(this.canvas.getStrokes(), this.canvas.getWidth(), this.canvas.getHeight(),
 				this.canvas.getBgColor(), this.canvas.getLineColor());
 			const svgEl  = new DOMParser().parseFromString(svg, 'image/svg+xml').documentElement as unknown as SVGElement;
 			const base64 = await svgToBase64Png(svgEl);
 			const recognizer = getRecognizer(this.plugin.settings.geminiApiKey, this.plugin.settings.ocrLanguages);
 			const rawText = await recognizer.recognize(base64);
-			if (!rawText.trim()) { new Notice(t('error_no_text')); return; }
+			if (!rawText.trim()) throw new Error(t('error_no_text'));
 			const markdown = parseHandwritingToMarkdown(rawText);
 			await archiveSvgFile(this.svgPath, this.plugin);
 			await replaceInMdFile(this.sourcePath, this.svgPath, this.embedId, '\n' + markdown + '\n', this.plugin);
+			overlay.remove();
 			this.canvas.destroy(); this.canvas = null;
 			this.close();
 			new Notice(t('notice_converted'));
-		} catch (e: unknown) { new Notice(t('error_ocr') + (e instanceof Error ? e.message : String(e))); }
+		} catch (e: unknown) {
+			// Errore: sostituisce lo spinner con messaggio + OK
+			overlay.empty();
+			const msg = e instanceof Error ? e.message : String(e);
+			overlay.createEl('p', { text: msg, cls: 'hwm_convert-error-msg' });
+			const okBtn = overlay.createEl('button', { text: 'OK', cls: 'hwm_convert-ok-btn mod-warning' });
+			okBtn.addEventListener('click', () => overlay.remove(), { once: true });
+		}
 	}
 
 	// Overlay di conferma inline: nessun Modal annidato → nessun furto di focus

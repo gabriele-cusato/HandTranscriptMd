@@ -86,26 +86,107 @@ The plugin uses **Google Gemini** to recognize handwritten text and converts it 
 
 #### Supported Keywords
 
-Write these keywords in your drawing to produce structured Markdown output. All keywords start with `//` and are **case-insensitive** (`//h1` = `//H1`).
+Write these keywords in your drawing to produce structured Markdown output. All keywords start with `//` and are **case-insensitive** (`//list` = `//LIST`). The colon after the keyword name is **optional** (`//H1 Title` and `//H1: Title` both work).
 
 | Keyword | Syntax | Output |
 |---------|--------|--------|
-| `//h1` | `//h1 My Title` | `# My Title` |
-| `//h2` | `//h2 Section` | `## Section` |
-| `//h3` | `//h3 Sub` | `### Sub` |
-| `//ul` | `//ul Item` | `- Item` |
-| `//ol` | `//ol Item` | `1. Item` |
-| `//todo` | `//todo Task` | `- [ ] Task` |
-| `//done` | `//done Task` | `- [x] Task` |
-| `//quote` | `//quote Text` | `> Text` |
-| `//code` | `//code snippet` | `` `snippet` `` |
-| `//hr` | `//hr` | `---` |
-| `//bold` | `//bold text` | `**text**` |
-| `//italic` | `//italic text` | `*text*` |
-| `//highlight` | `//highlight text` | `==text==` |
-| `//TABLE` ... `//TABLE` | rows between two `//TABLE` markers | Markdown table |
+| `//H1` | `//H1 My Title` | `# My Title` |
+| `//H2` | `//H2 Section` | `## Section` |
+| `//H3` | `//H3 Sub` | `### Sub` |
+| `//H4` | `//H4 Sub` | `#### Sub` |
+| `//LIST` | `//LIST item1, item2, item3` | bullet list |
+| `//NUMLIST` | `//NUMLIST item1, item2` | numbered list (starts at 1) |
+| `//NUMLIST` (offset) | `//NUMLIST 3 item1, item2` | numbered list starting at 3 |
+| `//CHECK` | `//CHECK task1, task2` | checklist (all unchecked) |
+| `//CHECK` (mixed) | `//CHECK x done, pending, x also done` | checklist with checked/unchecked items |
+| `//QUOTE` | `//QUOTE Text` | `> Text` |
+| `//NOTE` | `//NOTE Title` | Obsidian callout `[!NOTE]` |
+| `//WARN` | `//WARN Title` | Obsidian callout `[!WARNING]` |
+| `//TIP` | `//TIP Title` | Obsidian callout `[!TIP]` |
+| `//INFO` | `//INFO Title` | Obsidian callout `[!INFO]` |
+| `//ERROR` | `//ERROR Title` | Obsidian callout `[!ERROR]` |
+| `//IMPORTANT` | `//IMPORTANT Title` | Obsidian callout `[!IMPORTANT]` |
+| `//CODE` | `//CODE snippet` | `` `snippet` `` (inline code) |
+| `//CODEBLOCK` | `//CODEBLOCK js` + lines + blank line | fenced code block |
+| `//B` / `//BOLD` | `//BOLD text` | `**text**` |
+| `//I` | `//I text` | `*text*` |
+| `//BI` | `//BI text` | `***text***` |
+| `//S` / `//STRIKE` | `//S text` | `~~text~~` |
+| `//HL` | `//HL text` | `==text==` (highlight) |
+| `//LINK` | `//LINK label, url` | `[label](url)` |
+| `//IMG` | `//IMG alt, url` | `![alt](url)` |
+| `//TABLE` | `//TABLE Col1, Col2` + rows + `//TABLE` | Markdown table |
+| `//HR` / `//SEP` | `//HR` | `---` |
+| `//FN` | `//FN footnote text` | `[^1]: footnote text` (auto-numbered) |
+| `//MATH` | `//MATH x^2` | `$x^2$` (inline math) |
+| `//MATHBLOCK` | `//MATHBLOCK` + lines + blank line | `$$...$$` math block |
+| `//TAG` | `//TAG my tag` | `#my_tag` |
+| `//DATE` | `//DATE` | today's date (YYYY-MM-DD) |
+| `//TIME` | `//TIME` | current time (HH:MM) |
+| `//DATETIME` | `//DATETIME` | date + time |
+| `//INDENT` | `//INDENT text` | text indented by 2 spaces |
 
 Plain text lines (without a `//` keyword) are inserted as-is.
+
+---
+
+#### Multi-line Continuation
+
+Any keyword that accepts a comma-separated list (`//LIST`, `//NUMLIST`, `//CHECK`, `//TABLE` rows) supports **wrapping across lines**: if a line ends with a comma, the next line is automatically treated as a continuation.
+
+```
+//LIST groceries, milk, bread,
+butter, eggs
+```
+Output:
+```markdown
+- groceries
+- milk
+- bread
+- butter
+- eggs
+```
+
+---
+
+#### CHECK with Mixed States
+
+Prefix any item with `x` or `X` (with or without brackets) to mark it as already checked:
+
+```
+//CHECK x bought milk, prepare slides, x sent email, review PR
+```
+Output:
+```markdown
+- [x] bought milk
+- [ ] prepare slides
+- [x] sent email
+- [ ] review PR
+```
+
+---
+
+#### Multi-line Callouts
+
+The text on the keyword line becomes the callout **title**. Any lines that follow (up to the first blank line or next `//` keyword) become the callout **body**:
+
+```
+//NOTE Database connection
+The connection may fail on an unstable network.
+Always verify the timeout in the settings.
+
+Normal paragraph — outside the callout.
+```
+Output:
+```markdown
+> [!NOTE] Database connection
+> The connection may fail on an unstable network.
+> Always verify the timeout in the settings.
+
+Normal paragraph — outside the callout.
+```
+
+---
 
 After conversion, the SVG is archived to `_handwriting/_converted/YYYY-MM-DD_HH-MM-SS.svg` and the drawing block is replaced with the generated Markdown.
 

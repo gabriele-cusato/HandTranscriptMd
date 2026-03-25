@@ -691,6 +691,55 @@
 	font-size: 14px;
 }
 
+/* Overlay di conversione OCR: copre l'SVG mentre Gemini elabora.
+   Stessa struttura di hwm_confirm-overlay ma con spinner animato
+   e fase di errore con messaggio + pulsante OK. */
+.hwm_convert-overlay {
+	position: absolute;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.55);
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 12px;
+	z-index: 100;
+	border-radius: inherit;
+	pointer-events: auto !important; /* blocca click sull'SVG sottostante */
+}
+/* Rotellina di caricamento */
+.hwm_spinner {
+	width: 36px;
+	height: 36px;
+	border: 3px solid rgba(255, 255, 255, 0.25);
+	border-top-color: #fff;
+	border-radius: 50%;
+	animation: hwm_spin 0.75s linear infinite;
+}
+@keyframes hwm_spin {
+	to { transform: rotate(360deg); }
+}
+/* Messaggio di errore mostrato al posto dello spinner */
+.hwm_convert-error-msg {
+	color: #fff;
+	font-size: 13px;
+	text-align: center;
+	max-width: 80%;
+	margin: 0;
+	line-height: 1.4;
+}
+/* Pulsante OK per chiudere l'overlay di errore */
+.hwm_convert-ok-btn {
+	pointer-events: auto !important;
+	cursor: pointer;
+}
+/* Variante editor: copre l'intero modal/tab con z-index alto
+   per stare sopra toolbar e canvas */
+.hwm_convert-overlay--editor {
+	z-index: 1000;
+	border-radius: 0;
+}
+
 /* Wrapper per il collapse: contiene l'<img> e gestisce il clip.
    Animiamo solo il wrapper, non il container span, così il ResizeObserver
    di Obsidian Mobile non si attiva e non re-imposta le dimensioni dell'img. */
