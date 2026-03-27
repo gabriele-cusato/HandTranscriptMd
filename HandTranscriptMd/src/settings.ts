@@ -105,7 +105,7 @@ export class HandwritingSettingTab extends PluginSettingTab {
 		// Classe per scopare i CSS responsive delle impostazioni
 		containerEl.addClass('hwm_settings');
 
-		containerEl.createEl('h2', { text: 'Handwriting to Markdown' });
+		new Setting(containerEl).setName('Handwriting to Markdown').setHeading();
 
 		// Riga versione
 		containerEl.createEl('p', {

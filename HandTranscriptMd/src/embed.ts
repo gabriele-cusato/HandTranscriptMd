@@ -16,18 +16,10 @@ import {
 	TFile,
 	Notice,
 	Platform,
+	setIcon,
 } from 'obsidian';
-
-// Icone SVG inline (stile Lucide 24×24)
-const ICONS: Record<string, string> = {
-	'file-text':   `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>`,
-	'x':           `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`,
-	'file-x':      `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="9.5" y1="12.5" x2="14.5" y2="17.5"/><line x1="14.5" y1="12.5" x2="9.5" y2="17.5"/></svg>`,
-	'chevron-up':  `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>`,
-	'pencil':      `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>`,
-};
 import type HandwritingPlugin from './main';
-import { t } from './i18n';
+import { t, type I18nKey } from './i18n';
 import { Stroke } from './drawing-canvas';
 import { strokesToSvg, parseSvgStrokes, generateId, svgToBase64Png, archiveSvgFile } from './svg-utils';
 import { getEffectiveBgColor, getEffectiveLineColor, remapStrokeColor, BgMode, resolveIsDark } from './settings';
@@ -129,11 +121,8 @@ function setupMutationObserver(plugin: HandwritingPlugin) {
 		// Marca subito come decorato per evitare doppia elaborazione
 		span.dataset.hwmDecorated = '1';
 
-		// TEST A: pointer-events: none sullo span.
-		// Ipotesi: Chrome usa lo stesso hit-test dei pointer events per la
-		// proximity detection dell'handwriting → con none, ignora lo span e
-		// trova il cm-content[ce=true] sottostante → handwriting torna attivo.
-		span.style.pointerEvents = 'none';
+		// pointer-events: none sullo span: gestito dalla regola CSS
+		// .internal-embed[data-hwm-decorated="1"] — non serve inline style.
 
 		// NESSUNA modifica allo span dentro cm-content.
 		// Lo lasciamo identico a un'immagine normale: nessuna classe extra,
@@ -144,13 +133,48 @@ function setupMutationObserver(plugin: HandwritingPlugin) {
 		const sourcePath = resolveSourcePath(span, plugin);
 
 		// Callback refresh: aggiorna l'<img> dopo il salvataggio dalla tab editor.
-		// Usa cache-bust URL (non data-URI) per non rompere l'handwriting Android.
-		plugin.previewCallbacks.set(embedId, () => {
+		// Strategia: tenta il Blob URL (zero flash, istantaneo su Desktop).
+		// Se fallisce (CSP Android WebView blocca blob:), ricade su cache-bust URL.
+		// In entrambi i casi, dopo il caricamento aggiorna l'altezza del wrapper
+		// per notificare CodeMirror Live Preview del nuovo scrollHeight (Android).
+		plugin.previewCallbacks.set(embedId, (svgContent: string) => {
 			if (!span.isConnected) return;
 			const img = span.querySelector('img');
 			if (!img) return;
-			const base = img.src.split('?')[0]!;
-			img.src = base + '?t=' + Date.now();
+
+			// Aggiorna l'altezza del wrapper (se espanso) dopo ogni refresh dell'img.
+			// Su Android, CM6 Live Preview non rileva i cambi organici di altezza.
+			const syncWrapperHeight = () => {
+				const wrapper = span.querySelector('.hwm_clip-wrapper') as HTMLElement | null;
+				if (!wrapper || wrapper.classList.contains('hwm_overflow-hidden')) return;
+				const newH = wrapper.scrollHeight;
+				wrapper.style.transition = 'none';
+				wrapper.style.height = newH + 'px';
+				requestAnimationFrame(() => {
+					wrapper!.style.height = '';
+					wrapper!.style.transition = '';
+				});
+			};
+
+			// Tentativo 1: Blob URL (istantaneo, nessun flash di caricamento)
+			const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+			const blobUrl = URL.createObjectURL(blob);
+			img.src = blobUrl;
+
+			img.addEventListener('load', () => {
+				URL.revokeObjectURL(blobUrl);
+				syncWrapperHeight();
+			}, { once: true });
+
+			img.addEventListener('error', () => {
+				// Tentativo 2: cache-bust URL vault (Android WebView se CSP blocca blob:)
+				URL.revokeObjectURL(blobUrl);
+				const svgFile = plugin.app.vault.getAbstractFileByPath(svgPath);
+				if (!(svgFile instanceof TFile)) return;
+				const vaultUrl = plugin.app.vault.getResourcePath(svgFile);
+				img.src = vaultUrl + '?t=' + Date.now();
+				img.addEventListener('load', syncWrapperHeight, { once: true });
+			}, { once: true });
 		});
 
 		// Pannello portale con tutti i bottoni, in document.body (fuori da cm-content)
@@ -183,9 +207,10 @@ function setupMutationObserver(plugin: HandwritingPlugin) {
 function resolveSourcePath(el: HTMLElement, plugin: HandwritingPlugin): string {
 	const leaves = plugin.app.workspace.getLeavesOfType('markdown');
 	for (const leaf of leaves) {
-		const contentEl = (leaf.view as unknown as { contentEl: HTMLElement }).contentEl;
-		if (contentEl?.contains(el)) {
-			return (leaf.view as unknown as { file?: { path: string } }).file?.path ?? '';
+		// MarkdownView è già importato — cast diretto senza as unknown
+		const view = leaf.view as MarkdownView;
+		if (view.contentEl?.contains(el)) {
+			return view.file?.path ?? '';
 		}
 	}
 	// Fallback: file attualmente attivo
@@ -242,7 +267,8 @@ function showLegacyPreview(
 
 	const isDark = plugin.settings.bgMode === 'dark';
 	const bgColor = getEffectiveBgColor(plugin.settings);
-	container.style.backgroundColor = bgColor;
+	// Sfondo via CSS var: background-color: var(--hwm-bg) in .hwm_container
+	container.setCssProps({ '--hwm-bg': bgColor });
 
 	const collapsedHeight = plugin.settings.canvasHeight;
 
@@ -250,10 +276,10 @@ function showLegacyPreview(
 	const btnBar = container.createDiv({ cls: 'hwm_inline-buttons' });
 	if (isDark) btnBar.classList.add('hwm_inline-buttons--dark');
 
-	const deleteBtn = createBtn(btnBar, 'file-x', 'Elimina riquadro');
+	const deleteBtn = createBtn(btnBar, 'file-x', 'btn_delete');
 	deleteBtn.classList.add('hwm_delete-btn');
 
-	const convertBtn = createBtn(btnBar, 'file-text', 'Converti in Markdown');
+	const convertBtn = createBtn(btnBar, 'file-text', 'btn_convert');
 	convertBtn.classList.add('hwm_convert-btn');
 
 	const collapseBtn = createBtn(btnBar, 'chevron-up', 'btn_collapse');
@@ -276,19 +302,18 @@ function showLegacyPreview(
 		renderPreviewContent(preview, newSvgContent);
 	});
 
-	// Collapse/Expand
+	// Collapse/Expand: max-height via CSS var --hwm-max-h su .hwm_collapsed
 	collapseBtn.addEventListener('click', (e) => {
 		e.stopPropagation();
 		isExpanded = !isExpanded;
 		if (isExpanded) {
 			preview.classList.remove('hwm_collapsed');
-			preview.style.maxHeight = '';
 			collapseBtn.classList.remove('hwm_rotated');
 			collapseBtn.title = t('btn_collapse');
 			collapseBtn.setAttribute('data-hwm-key', 'btn_collapse');
 		} else {
+			preview.setCssProps({ '--hwm-max-h': collapsedHeight + 'px' });
 			preview.classList.add('hwm_collapsed');
-			preview.style.maxHeight = collapsedHeight + 'px';
 			collapseBtn.classList.add('hwm_rotated');
 			collapseBtn.title = t('btn_expand');
 			collapseBtn.setAttribute('data-hwm-key', 'btn_expand');
@@ -299,20 +324,24 @@ function showLegacyPreview(
 	createLegacyPortalButton(container, plugin.app, plugin, data.id, data.svg, ctx.sourcePath);
 
 	// Converti
-	convertBtn.addEventListener('click', async (e) => {
+	convertBtn.addEventListener('click', (e) => {
 		e.stopPropagation();
-		if (!currentSvgContent || currentStrokes.length === 0) {
-			new Notice(t('error_no_strokes'));
-			return;
-		}
-		await doConvert(currentSvgContent, data, ctx, plugin);
+		void (async () => {
+			if (!currentSvgContent || currentStrokes.length === 0) {
+				new Notice(t('error_no_strokes'));
+				return;
+			}
+			await doConvert(currentSvgContent, data, ctx, plugin);
+		})();
 	});
 
 	// Elimina
-	deleteBtn.addEventListener('click', async (e) => {
+	deleteBtn.addEventListener('click', (e) => {
 		e.stopPropagation();
-		if (!await showInlineConfirm(container, t('confirm_delete'))) return;
-		await removeLegacyEmbed(ctx, data, plugin);
+		void (async () => {
+			if (!await showInlineConfirm(container, t('confirm_delete'))) return;
+			await removeLegacyEmbed(ctx, data, plugin);
+		})();
 	});
 }
 
@@ -322,12 +351,15 @@ function renderPreviewContent(preview: HTMLElement, svgContent: string | null) {
 	preview.empty();
 	if (svgContent) {
 		const div = preview.createDiv({ cls: 'hwm_preview-bg' });
-		div.style.backgroundImage = `url('data:image/svg+xml,${encodeURIComponent(svgContent)}')`;
-		// Calcola aspect ratio dal viewBox
+		// Immagine e aspect-ratio via CSS var: background-image e padding-bottom
+		// sono definiti in .hwm_preview-bg come var(--hwm-bg-img) e var(--hwm-ratio)
 		const m = svgContent.match(/viewBox="0 0 (\d+) (\d+)"/);
 		const svgW = m ? parseInt(m[1]!) : 800;
 		const svgH = m ? parseInt(m[2]!) : 300;
-		div.style.paddingBottom = (svgH / svgW * 100) + '%';
+		div.setCssProps({
+			'--hwm-bg-img': `url('data:image/svg+xml,${encodeURIComponent(svgContent)}')`,
+			'--hwm-ratio':  `${svgH / svgW * 100}%`,
+		});
 	} else {
 		preview.createDiv({ cls: 'hwm_placeholder', text: t('notice_placeholder_draw') });
 	}
@@ -552,7 +584,8 @@ function stripContentEditableFalse(el: HTMLElement) {
 		if (node.getAttribute('contenteditable') === 'false') {
 			node.removeAttribute('contenteditable');
 		}
-		node.style.setProperty('pointer-events', 'none');
+		// pointer-events: none tramite classe CSS (evita stili inline)
+		node.classList.add('hwm_no-pointer');
 		node = node.parentElement;
 	}
 }
@@ -570,14 +603,14 @@ function createPortalPanel(
 	plugin: HandwritingPlugin
 ) {
 	const isDark = resolveIsDark(plugin.settings.bgMode);
-	const collapsedHeight = plugin.settings.canvasHeight;
+	// Altezza del riquadro compresso: calcolata dinamicamente in updateCollapseBtn()
 	let isExpanded = true;
 	// Flag per nascondere il pannello quando il modal (Desktop) è aperto
 	let modalOpen = false;
 	let isConverting = false; // true mentre OCR e' in corso (o errore non ancora confermato)
 
-	// Lo span diventa position: relative per ancorarvi il pannello (position: absolute).
-	container.style.position = 'relative';
+	// position: relative sullo span è gestita dalla regola CSS
+	// .internal-embed[data-hwm-decorated="1"] — non serve inline style.
 
 	const panel = document.createElement('div');
 	panel.className = 'hwm_portal-panel';
@@ -593,16 +626,16 @@ function createPortalPanel(
 	// Desktop: apre DrawingModal (overlay fullscreen, senza aprire nuova tab)
 	// Mobile: apre DrawingEditorView in una nuova tab
 	const pencilBtn = createPanelBtn(panel, 'pencil', 'btn_open_editor');
-	pencilBtn.addEventListener('click', async () => {
+	pencilBtn.addEventListener('click', () => { void (async () => {
 		if (Platform.isDesktop) {
 			if (modalOpen) return;
 			modalOpen = true;
 			// Nasconde il pannello mentre il modal è aperto (altrimenti galleggerebbe sul canvas)
-			panel.style.display = 'none';
+			panel.classList.add('hwm_hidden');
 			const modal = new DrawingModal(plugin.app, plugin, embedId, svgPath, sourcePath);
 			modal.onClosed = () => {
 				modalOpen = false;
-				if (container.isConnected) panel.style.display = '';
+				if (container.isConnected) panel.classList.remove('hwm_hidden');
 			};
 			modal.open();
 		} else {
@@ -621,7 +654,7 @@ function createPortalPanel(
 			});
 			plugin.app.workspace.revealLeaf(leaf);
 		}
-	});
+	})(); });
 
 	// Separatore visivo
 	const sep = document.createElement('div');
@@ -642,22 +675,22 @@ function createPortalPanel(
 	// --- Bottone elimina ---
 	const deleteBtn = createPanelBtn(panel, 'file-x', 'btn_delete');
 	deleteBtn.classList.add('hwm_delete-btn');
-	deleteBtn.addEventListener('click', async () => {
+	deleteBtn.addEventListener('click', () => { void (async () => {
 		if (!await showInlineConfirm(container, t('confirm_delete'))) return;
 		await removeWikiEmbed(svgPath, sourcePath, plugin);
-	});
+	})(); });
 
 	// --- Funzioni condivise: usate dai bottoni e dal menu globale (⋮ Obsidian) ---
 	// Assicura che l'<img> sia dentro un div.hwm_clip-wrapper.
-	// Animiamo solo il wrapper (non il container span) così il ResizeObserver
-	// di Obsidian Mobile sul container non si attiva e non re-imposta le dimensioni dell'img.
-	// Usiamo img.parentElement come anchor per insertBefore: su Android l'img
-	// potrebbe non essere figlia diretta del container span.
+	// Animiamo il wrapper (non il container span) così il ResizeObserver
+	// di Obsidian Mobile non si attiva sul container e non re-imposta le dimensioni dell'img.
 	const ensureWrapper = (): HTMLElement | null => {
 		let wrapper = container.querySelector('.hwm_clip-wrapper') as HTMLElement | null;
 		if (wrapper) return wrapper;
 		const img = container.querySelector('img');
 		if (!img || !img.parentElement) return null;
+		// Crea il wrapper e sposta l'img dentro: nessuna classe/altezza iniziale.
+		// La transizione CSS (height 0.3s ease) è già definita in styles.css su .hwm_clip-wrapper.
 		wrapper = document.createElement('div');
 		wrapper.className = 'hwm_clip-wrapper';
 		img.parentElement.insertBefore(wrapper, img);
@@ -667,15 +700,21 @@ function createPortalPanel(
 
 	const doExpand = () => {
 		isExpanded = true;
-		const wrapper = container.querySelector('.hwm_clip-wrapper') as HTMLElement | null;
+		const wrapper = ensureWrapper();
 		if (wrapper) {
-			// Anima da collapsedHeight verso l'altezza naturale (scrollHeight)
+			// Anima da altezza corrente (px) → altezza piena (scrollHeight).
 			wrapper.style.height = wrapper.scrollHeight + 'px';
-			// A transizione finita rimuovi l'altezza esplicita: il wrapper torna flessibile
-			wrapper.addEventListener('transitionend', () => {
-				wrapper.style.height   = '';
-				wrapper.style.overflow = '';
-			}, { once: true });
+			// Cleanup: rimuove altezza fissa e overflow al termine dell'animazione.
+			// Su Android WebView transitionend non è affidabile → setTimeout fallback.
+			let done = false;
+			const cleanup = () => {
+				if (done) return;
+				done = true;
+				wrapper!.style.height = '';
+				wrapper!.classList.remove('hwm_overflow-hidden');
+			};
+			wrapper.addEventListener('transitionend', cleanup, { once: true });
+			setTimeout(cleanup, 400); // 300ms transizione + 100ms buffer
 		}
 		container.classList.remove('hwm_is-collapsed');
 		collapseBtn.classList.remove('hwm_rotated');
@@ -686,14 +725,18 @@ function createPortalPanel(
 		isExpanded = false;
 		const wrapper = ensureWrapper();
 		if (wrapper) {
-			wrapper.style.overflow = 'hidden';
-			// Prima forza un'altezza esplicita pari all'altezza attuale (altrimenti
-			// la transizione partirebbe da 'auto' e non si animarebbe)
+			const img = container.querySelector('img');
+			// Altezza compressa = altezza naturale dell'img per un canvas non espanso,
+			// calcolata dall'aspect ratio reale (canvasHeight / canvasWidth × larghezza img).
+			// Varia in base alla larghezza del container nello schermo corrente,
+			// ma è coerente sullo stesso dispositivo.
+			const naturalH = img && img.clientWidth > 0
+				? Math.round(plugin.settings.canvasHeight * img.clientWidth / plugin.settings.canvasWidth)
+				: plugin.settings.canvasHeight;
 			wrapper.style.height = wrapper.scrollHeight + 'px';
-			// Nel frame successivo imposta l'altezza target: la transizione CSS scatta
-			requestAnimationFrame(() => {
-				wrapper.style.height = collapsedHeight + 'px';
-			});
+			wrapper.classList.add('hwm_overflow-hidden');
+			void wrapper.offsetHeight; // forza reflow: il browser registra il "from"
+			wrapper.style.height = naturalH + 'px';
 		}
 		container.classList.add('hwm_is-collapsed');
 		collapseBtn.classList.add('hwm_rotated');
@@ -704,8 +747,8 @@ function createPortalPanel(
 	// poi errore + OK se Gemini fallisce.
 	// Nasconde il pannello portale (come modalOpen) per bloccare tutti i click.
 	const showConvertOverlay = (): HTMLElement => {
-		// Nasconde il pannello: stessa logica di modalOpen (evita click sui bottoni durante OCR)
-		panel.style.display = 'none';
+		// Nasconde il pannello durante OCR: evita click sui bottoni
+		panel.classList.add('hwm_hidden');
 		const overlay = document.createElement('div');
 		overlay.className = 'hwm_convert-overlay';
 		const spinner = document.createElement('div');
@@ -715,10 +758,10 @@ function createPortalPanel(
 		return overlay;
 	};
 
-	// Rimuove overlay e ripristina il pannello portale
+	// Rimuove overlay e ripristina la visibilità del pannello portale
 	const removeConvertOverlay = (overlay: HTMLElement) => {
 		overlay.remove();
-		if (container.isConnected) panel.style.display = '';
+		if (container.isConnected) panel.classList.remove('hwm_hidden');
 		isConverting = false;
 	};
 
@@ -748,7 +791,7 @@ function createPortalPanel(
 	collapseBtn.addEventListener('click', () => {
 		if (isExpanded) doCollapse(); else doExpand();
 	});
-	convertBtn.addEventListener('click', () => doConvertAction());
+	convertBtn.addEventListener('click', () => { void doConvertAction(); });
 
 	// Registra le azioni nel plugin per il menu "⋮ Espandi/Collassa/Converti tutti"
 	plugin.embedActions.set(embedId, { expand: doExpand, collapse: doCollapse, convert: doConvertAction, container, sourcePath });
@@ -764,7 +807,7 @@ function createPortalPanel(
 		if (Platform.isMobile) {
 			const tabOpen = plugin.app.workspace.getLeavesOfType(VIEW_TYPE_HANDWRITING)
 				.some(l => (l.view as DrawingEditorView).getEmbedId() === embedId);
-			panel.style.display = tabOpen ? 'none' : '';
+			panel.classList.toggle('hwm_hidden', tabOpen);
 		}
 	};
 	plugin.app.workspace.on('layout-change', onLayoutChange);
@@ -798,14 +841,15 @@ function showInlineConfirm(anchorEl: HTMLElement, msg: string): Promise<boolean>
 
 // Crea un bottone div nel pannello portale.
 // key: chiave i18n — usata sia per il title che per data-hwm-key (aggiornamento live al cambio lingua)
-function createPanelBtn(parent: HTMLElement, icon: string, key: string): HTMLElement {
+function createPanelBtn(parent: HTMLElement, icon: string, key: I18nKey): HTMLElement {
 	const btn = document.createElement('div');
 	btn.className = 'hwm_btn';
-	btn.setAttribute('title', t(key as any));
+	btn.setAttribute('title', t(key));
 	btn.setAttribute('data-hwm-key', key);
 	btn.setAttribute('role', 'button');
 	btn.setAttribute('tabindex', '0');
-	btn.innerHTML = ICONS[icon] ?? '';
+	// setIcon: inserisce l'SVG Lucide in modo sicuro (no innerHTML)
+	setIcon(btn, icon);
 	parent.appendChild(btn);
 	return btn;
 }
@@ -825,12 +869,13 @@ function createLegacyPortalButton(
 ) {
 	const btn = document.createElement('button');
 	btn.className = 'hwm_portal-btn';
-	btn.innerHTML = ICONS['pencil'] ?? '';
+	// setIcon: inserisce l'SVG Lucide in modo sicuro (no innerHTML)
+	setIcon(btn, 'pencil');
 	btn.title = t('btn_open_editor');
 	document.body.appendChild(btn);
 
 	// Apre la tab editor al click
-	btn.addEventListener('click', async () => {
+	btn.addEventListener('click', () => { void (async () => {
 		const leaves = plugin.app.workspace.getLeavesOfType(VIEW_TYPE_HANDWRITING);
 		const existing = leaves.find(l => (l.view as DrawingEditorView).getEmbedId() === embedId);
 		if (existing) {
@@ -844,21 +889,25 @@ function createLegacyPortalButton(
 			active: true,
 		});
 		plugin.app.workspace.revealLeaf(leaf);
-	});
+	})(); });
 
-	// RAF loop: aggiorna posizione e visibilità
+	// RAF loop: aggiorna posizione e visibilità via CSS var (--hwm-top, --hwm-left)
+	// e classe .hwm_hidden per nascondere quando fuori viewport o editor aperto.
 	const update = () => {
 		if (!container.isConnected) {
 			btn.remove();
 			return;
 		}
 		const rect = container.getBoundingClientRect();
-		btn.style.top = (rect.top + 6) + 'px';
-		btn.style.left = (rect.right - 44) + 'px';
+		// Posizione via CSS var: top e left definiti in .hwm_portal-btn come var(--hwm-top/left)
+		btn.setCssProps({
+			'--hwm-top':  `${rect.top + 6}px`,
+			'--hwm-left': `${rect.right - 44}px`,
+		});
 		const editorOpen = plugin.app.workspace.getLeavesOfType(VIEW_TYPE_HANDWRITING)
 			.some(l => (l.view as DrawingEditorView).getEmbedId() === embedId);
 		const inViewport = rect.width > 0 && rect.top < window.innerHeight && rect.bottom > 0;
-		btn.style.display = (inViewport && !editorOpen) ? 'flex' : 'none';
+		btn.classList.toggle('hwm_hidden', !(inViewport && !editorOpen));
 		requestAnimationFrame(update);
 	};
 	requestAnimationFrame(update);
@@ -867,10 +916,11 @@ function createLegacyPortalButton(
 // Usa <div> invece di <button> per i bottoni dentro cm-content.
 // I <button> su Android Mobile possono interferire con l'handwriting.
 // key: chiave i18n — usata sia per il title che per data-hwm-key (aggiornamento live al cambio lingua)
-function createBtn(parent: HTMLElement, icon: string, key: string): HTMLElement {
-	const btn = parent.createDiv({ cls: 'hwm_btn', attr: { title: t(key as any), role: 'button', tabindex: '0' } });
+function createBtn(parent: HTMLElement, icon: string, key: I18nKey): HTMLElement {
+	const btn = parent.createDiv({ cls: 'hwm_btn', attr: { title: t(key), role: 'button', tabindex: '0' } });
 	btn.setAttribute('data-hwm-key', key);
-	btn.innerHTML = ICONS[icon] ?? '';
+	// setIcon: inserisce l'SVG Lucide in modo sicuro (no innerHTML)
+	setIcon(btn, icon);
 	return btn;
 }
 

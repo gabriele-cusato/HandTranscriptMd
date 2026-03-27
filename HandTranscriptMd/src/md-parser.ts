@@ -57,8 +57,8 @@ export function normalizeMarkdownSymbols(rawText: string): string {
  * Applica le correzioni su una singola riga (non dentro blocchi codice).
  */
 function normalizeLine(line: string): string {
-	// Righe keyword //KEYWORD — non modificare, le gestisce expandKeywords
-	if (/^\/\/[A-Za-z0-9_]/i.test(line.trim())) return line;
+	// Righe keyword //KEYWORD o // KEYWORD (con spazio) — non modificare, le gestisce expandKeywords
+	if (/^\/\/\s*[A-Za-z0-9_]/i.test(line.trim())) return line;
 
 	// Rimuove spazi finali (non iniziali: servono per le liste annidate)
 	line = line.trimEnd();
@@ -82,8 +82,8 @@ function normalizeLine(line: string): string {
 	line = line.replace(/^[•·∙◦‣⁃➤➢▶►▸▪▫●○]\s*(.+)$/, '- $1');
 
 	// Lista non ordinata: -elemento (senza spazio) → - elemento
-	// [^\s\-] assicura che non sia già "- " né "--"
-	line = line.replace(/^-([^\s\-].+)$/, '- $1');
+	// [^\s-] assicura che non sia già "- " né "--"
+	line = line.replace(/^-([^\s-].+)$/, '- $1');
 
 	// Lista numerata — tre varianti:
 	// 1)elemento o 1.elemento (con o senza spazio) → 1. elemento
@@ -197,7 +197,7 @@ export function expandKeywords(text: string, fnStart = 1): string {
 		// Pattern: //KEYWORD contenuto  oppure  //KEYWORD: contenuto  (colon opzionale)
 		// Es: //H1 CIAO, //LIST a, b, c, //CODEBLOCK js, //HR
 		// Il contenuto segue il nome keyword separato da spazio e/o ':'
-		const kw = trimmed.match(/^\/\/([A-Za-z0-9_]+)\s*:?\s*(.*)/i);
+		const kw = trimmed.match(/^\/\/\s*([A-Za-z0-9_]+)\s*:?\s*(.*)/i);
 
 		if (!kw) {
 			out.push(line);

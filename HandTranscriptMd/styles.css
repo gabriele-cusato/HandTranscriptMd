@@ -3,6 +3,41 @@
    Prefisso hwm_ per evitare conflitti
    ======================================== */
 
+/* ========================================
+   UTILITY CLASSES — Usate da JS per toggle
+   ======================================== */
+
+/* Nasconde un elemento (sostituisce style.display = 'none') */
+.hwm_hidden {
+	display: none !important;
+}
+
+/* Annulla pointer-events (usato da stripContentEditableFalse sul formato legacy) */
+.hwm_no-pointer {
+	pointer-events: none !important;
+}
+
+/* Overflow hidden per l'animazione collapse del wrapper immagine */
+.hwm_overflow-hidden {
+	overflow: hidden;
+}
+
+/* Animazione altezza del wrapper clip (collapse/expand nuovo formato) */
+.hwm_clip-wrapper {
+	transition: height 0.3s ease;
+}
+.hwm_clip-animating {
+	height: var(--hwm-clip-h, auto);
+}
+
+/* Lo span internal-embed decorato dal plugin riceve position:relative
+   (ancoraggo del pannello portale position:absolute) e pointer-events:none
+   (non blocca lo stylus Android; il pannello portale ha pointer-events:auto) */
+.internal-embed[data-hwm-decorated="1"] {
+	position: relative;
+	pointer-events: none;
+}
+
 /* --- Container principale dell'embed --- */
 .hwm_container {
 	position: relative;
@@ -10,8 +45,8 @@
 	border-radius: var(--radius-m);
 	overflow: hidden;
 	margin: 8px 0;
-	/* Sfondo SEMPRE bianco (anche in dark mode) */
-	background: #ffffff;
+	/* Sfondo via CSS var (impostato con setCssProps --hwm-bg) con fallback bianco */
+	background-color: var(--hwm-bg, #ffffff);
 	/* Riabilita pointer-events (i wrapper CM6 sopra hanno pointer-events: none
 	   per non bloccare l'hit-test dell'handwriting Android) */
 	pointer-events: auto;
@@ -177,15 +212,20 @@
 }
 /* I pallini colore sono <div> (non <button>) per evitare che Obsidian Mobile
    sovrascriva width/height con i propri stili globali sui button.
-   Le dimensioni (22px) sono forzate anche via style.setProperty inline in embed.ts */
+   Il colore sfondo è impostato via setCssProps --hwm-btn-color.
+   Le dimensioni forzate con !important per resistere agli override di Obsidian Mobile. */
 .hwm_color-btn {
 	display: inline-block;
-	width: 22px;
-	height: 22px;
+	width: 22px !important;
+	height: 22px !important;
+	min-width: 22px !important;
+	min-height: 22px !important;
 	border: 2px solid transparent;
-	border-radius: 50%;
+	border-radius: 50% !important;
 	cursor: pointer;
-	box-sizing: border-box;
+	box-sizing: border-box !important;
+	flex-shrink: 0;
+	background-color: var(--hwm-btn-color, transparent);
 }
 .hwm_color-btn.hwm_active {
 	border-color: var(--interactive-accent);
@@ -468,7 +508,8 @@
 	transition: max-height 0.3s ease;
 }
 .hwm_inline-preview.hwm_collapsed {
-	/* max-height impostato via JS */
+	/* max-height e overflow impostati tramite CSS var --hwm-max-h (setCssProps) */
+	max-height: var(--hwm-max-h, 48px);
 	overflow: hidden;
 }
 
@@ -477,6 +518,9 @@
 .hwm_preview-bg {
 	width: 100%;
 	height: 0; /* l'altezza è data da padding-bottom (aspect ratio) */
+	/* Immagine e proporzioni impostate via setCssProps --hwm-bg-img e --hwm-ratio */
+	background-image: var(--hwm-bg-img);
+	padding-bottom: var(--hwm-ratio, 37.5%);
 	background-size: 100% auto;
 	background-repeat: no-repeat;
 	background-position: top left;
@@ -525,7 +569,9 @@
 
 /* Bottone cerchio singolo (formato legacy) */
 .hwm_portal-btn {
-	position: fixed; /* coordinate viewport, aggiornate via JS */
+	position: fixed; /* coordinate viewport via CSS var --hwm-top e --hwm-left */
+	top: var(--hwm-top, 0);
+	left: var(--hwm-left, 0);
 	z-index: 100;
 	/* Cerchio perfetto: dimensioni fisse con !important per sovrascrivere
 	   gli stili globali di Obsidian sui button che aggiungono padding */
@@ -588,6 +634,8 @@
 	display: flex;
 	flex-direction: column;
 	height: 100%;
+	/* Sfondo via CSS var (impostato con setCssProps --hwm-bg) con fallback bianco */
+	background-color: var(--hwm-bg, #ffffff);
 }
 
 /* --- Top bar: ← a sinistra | toolbar a destra --- */

@@ -37,7 +37,7 @@ function expect(actual: string) {
 }
 
 function describe(name: string, fn: () => void) {
-	console.log(`\n📋 ${name}`);
+	console.debug(`\n📋 ${name}`);
 	fn();
 }
 
@@ -190,10 +190,10 @@ describe('expandKeywords — colon opzionale', () => {
 });
 
 describe('expandKeywords — CODEBLOCK multi-riga', () => {
-	const input = '//CODEBLOCK js\nconsole.log(\'ciao\')\nconst x = 1\n';
+	const input = '//CODEBLOCK js\nconsole.debug(\'ciao\')\nconst x = 1\n';
 	const out   = expand(input);
 	expect(out).toContain('```js');
-	expect(out).toContain('console.log(\'ciao\')');
+	expect(out).toContain('console.debug(\'ciao\')');
 	expect(out).toContain('```');
 });
 
@@ -222,10 +222,10 @@ describe('pipeline completa', () => {
 // Report finale
 // =============================================================================
 
-console.log(`\n${'─'.repeat(40)}`);
+console.debug(`\n${'─'.repeat(40)}`);
 if (failed === 0) {
-	console.log(`✅ Tutti i ${passed} test passati.`);
+	console.debug(`✅ Tutti i ${passed} test passati.`);
 } else {
-	console.log(`❌ ${failed} test falliti su ${passed + failed} totali.`);
+	console.debug(`❌ ${failed} test falliti su ${passed + failed} totali.`);
 	process.exit(1);
 }

@@ -7,6 +7,8 @@
    in futuro altri backend OCR senza toccare embed.ts.
    ============================================= */
 
+import { requestUrl } from 'obsidian';
+
 // Modello Gemini da usare per il riconoscimento visivo
 const GEMINI_MODEL = 'gemini-3.1-flash-lite-preview';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
@@ -48,9 +50,14 @@ class GeminiRecognizer implements IRecognizer {
 			`(es. #, ##, ###, -, *, >, \`\`\`, **testo**, *testo*, ==testo==, ~~testo~~, - [ ], - [x]). ` +
 			`Restituisci SOLO il testo trascritto, senza alcuna spiegazione aggiuntiva.`;
 
-		const resp = await fetch(`${GEMINI_URL}?key=${this.apiKey}`, {
+		// requestUrl è la funzione Obsidian per le richieste HTTP:
+		// funziona uguale su Desktop e Android (a differenza di fetch nativo).
+		// throw: false → non lancia eccezione su 4xx: gestiamo lo status manualmente.
+		const resp = await requestUrl({
+			url: `${GEMINI_URL}?key=${this.apiKey}`,
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
+			contentType: 'application/json',
+			throw: false,
 			body: JSON.stringify({
 				contents: [{
 					parts: [
@@ -64,12 +71,12 @@ class GeminiRecognizer implements IRecognizer {
 		});
 
 		// Gestione errori HTTP (chiave non valida, quota esaurita, ecc.)
-		if (!resp.ok) {
-			const errJson = await resp.json().catch(() => ({})) as GeminiResponse;
-			throw new Error(`Gemini ${resp.status}: ${errJson?.error?.message ?? resp.statusText}`);
+		if (resp.status !== 200) {
+			const errJson = resp.json as GeminiResponse;
+			throw new Error(`Gemini ${resp.status}: ${errJson?.error?.message ?? String(resp.status)}`);
 		}
 
-		const json = await resp.json() as GeminiResponse;
+		const json = resp.json as GeminiResponse;
 		// Estrae il testo dal primo candidato
 		const text = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
 		return text.trim();

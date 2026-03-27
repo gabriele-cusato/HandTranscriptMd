@@ -70,9 +70,7 @@ export default class HandwritingPlugin extends Plugin {
 			id: 'insert-handwriting',
 			name: 'Insert handwriting block',
 			icon: 'pencil',
-			editorCallback: async () => {
-				await insertHandwritingBlock(this);
-			}
+			editorCallback: () => { void insertHandwritingBlock(this); }
 		});
 
 		// Comando: inserisce un riferimento a un SVG esistente nella cartella handwriting
@@ -86,9 +84,7 @@ export default class HandwritingPlugin extends Plugin {
 		});
 
 		// Icona nella ribbon (sidebar sinistra)
-		this.addRibbonIcon('pencil', 'Insert handwriting', async () => {
-			await insertHandwritingBlock(this);
-		});
+		this.addRibbonIcon('pencil', 'Insert handwriting', () => { void insertHandwritingBlock(this); });
 
 		// Tab impostazioni
 		this.addSettingTab(new HandwritingSettingTab(this.app, this));
@@ -120,20 +116,23 @@ export default class HandwritingPlugin extends Plugin {
 					.setTitle(t('menu_convert_all'))
 					.setIcon('file-text')
 					.setSection('danger')
-					.onClick(async () => {
-						try {
-							// Sequenziale: si ferma al primo errore
-							for (const actions of this.getActiveEmbeds(file.path)) {
-								await actions.convert();
+					.onClick(() => {
+						// Sequenziale: si ferma al primo errore
+						void (async () => {
+							try {
+								for (const actions of this.getActiveEmbeds(file.path)) {
+									await actions.convert();
+								}
+							} catch (e: unknown) {
+								new Notice(t('error_conversion') + (e instanceof Error ? e.message : String(e)));
 							}
-						} catch (e: unknown) {
-							new Notice(t('error_conversion') + (e instanceof Error ? e.message : String(e)));
-						}
+						})();
 					})
 				);
 				// Sposta le 3 voci appena aggiunte prima del primo item 'danger' esistente
 				// (cioè prima di "Elimina file"), in modo che compaiano sopra di esso.
-				const items: Array<{ section: string }> = (menu as any).items;
+				// Accesso a proprietà interna non pubblica di Menu: necessario per il riposizionamento.
+			const items = (menu as unknown as { items: Array<{ section: string }> }).items;
 				const added = items.splice(items.length - 3, 3);
 				const firstDangerIdx = items.findIndex(i => i.section === 'danger');
 				items.splice(firstDangerIdx >= 0 ? firstDangerIdx : items.length, 0, ...added);

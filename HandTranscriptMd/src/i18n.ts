@@ -44,7 +44,7 @@ let dict: typeof en = en;
 // che hanno l'attributo data-hwm-key (impostato da mkBtn/createBtn/createPanelBtn).
 export function setLocale(lang: string): void {
 	const resolved = lang === 'auto'
-		? ((window as any).moment?.locale?.() ?? 'en')
+		? ((window as Window & { moment?: { locale?: () => string } }).moment?.locale?.() ?? 'en')
 		: lang;
 	dict = locales[resolved] ?? en;
 	// Aggiorna i tooltip già presenti nel DOM
@@ -59,6 +59,10 @@ export function setLocale(lang: string): void {
 export function t(key: keyof typeof en): string {
 	return (dict as Record<string, string>)[key] ?? (en as Record<string, string>)[key] ?? key;
 }
+
+// Tipo per le chiavi i18n — usato nei parametri di funzione al posto di `string`
+// per evitare cast `as any` e avere type-safety sul dizionario.
+export type I18nKey = keyof typeof en;
 
 // Ritorna i codici lingua disponibili (escluso 'auto')
 export function availableLocales(): string[] {

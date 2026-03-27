@@ -5,32 +5,16 @@
    handwriting Android.
    ============================================= */
 
-import { ItemView, WorkspaceLeaf, TFile, Notice, Platform, Modal, App, MarkdownView } from 'obsidian';
+import { ItemView, WorkspaceLeaf, TFile, Notice, Platform, Modal, App, MarkdownView, setIcon, ViewStateResult } from 'obsidian';
 import type HandwritingPlugin from './main';
 import { DrawingCanvas, Stroke } from './drawing-canvas';
 import { strokesToSvg, parseSvgStrokes, svgToBase64Png, archiveSvgFile } from './svg-utils';
 import { getEffectiveBgColor, getEffectiveLineColor, remapStrokeColor, LIGHT_COLORS, DARK_COLORS, resolveIsDark } from './settings';
 import { getRecognizer } from './recognizer';
 import { parseHandwritingToMarkdown } from './md-parser';
-import { t } from './i18n';
+import { t, type I18nKey } from './i18n';
 
 export const VIEW_TYPE_HANDWRITING = 'handwriting-editor';
-
-// Icone SVG inline (stile Lucide 24×24)
-const ICONS: Record<string, string> = {
-	'pencil':      `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>`,
-	'eraser':      `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>`,
-	'rotate-ccw':  `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`,
-	'rotate-cw':   `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>`,
-	'trash':       `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`,
-	'file-text':   `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>`,
-	'save':        `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>`,
-	'x':           `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`,
-	'file-x':      `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="9.5" y1="12.5" x2="14.5" y2="17.5"/><line x1="14.5" y1="12.5" x2="9.5" y2="17.5"/></svg>`,
-	'chevron-down':`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`,
-	'chevron-up':  `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>`,
-	'arrow-left':  `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>`,
-};
 
 /* =============================================
    Utilità condivise tra DrawingEditorView e DrawingModal
@@ -107,13 +91,14 @@ async function saveSvgToDisk(
 	plugin.refreshPreview(embedId, svg);
 }
 
-// Crea un bottone con icona SVG inline.
+// Crea un bottone con icona Lucide via setIcon.
 // Funzione standalone (non metodo) — usata da entrambe le classi editor.
-function mkBtn(parent: HTMLElement, icon: string, key: string): HTMLElement {
-	const label = t(key as any);
+function mkBtn(parent: HTMLElement, icon: string, key: I18nKey): HTMLElement {
+	const label = t(key);
 	const btn = parent.createEl('button', { cls: 'hwm_btn', attr: { title: label } });
 	btn.setAttribute('data-hwm-key', key);
-	btn.innerHTML = ICONS[icon] ?? '';
+	// setIcon: inserisce l'SVG in modo sicuro (no innerHTML)
+	setIcon(btn, icon);
 	return btn;
 }
 
@@ -145,7 +130,8 @@ async function buildEditorUI(opts: {
 	const isDark   = resolveIsDark(plugin.settings.bgMode);
 	const bgColor  = getEffectiveBgColor(plugin.settings);
 	const lineColor = getEffectiveLineColor(plugin.settings);
-	el.style.backgroundColor = bgColor;
+	// Sfondo via CSS var: background-color: var(--hwm-bg) in .hwm_editor-view
+	el.setCssProps({ '--hwm-bg': bgColor });
 
 	// --- Top bar: contiene la toolbar centrata e il bottone X ---
 	const topbar = el.createDiv({ cls: 'hwm_editor-topbar hwm_editor-topbar--modal' });
@@ -170,13 +156,9 @@ async function buildEditorUI(opts: {
 			cls: 'hwm_color-btn',
 			attr: { title: c, role: 'button', tabindex: '0' }
 		});
-		btn.style.backgroundColor = c;
-		// Dimensioni forzate (bypass stili Obsidian Mobile)
-		for (const [k, v] of Object.entries({
-			width: '22px', height: '22px', 'min-width': '22px',
-			'min-height': '22px', 'border-radius': '50%',
-			'box-sizing': 'border-box', 'flex-shrink': '0'
-		})) btn.style.setProperty(k, v, 'important');
+		// Colore via CSS var: background-color: var(--hwm-btn-color) in .hwm_color-btn
+		// Le dimensioni forzate sono ora nel CSS con !important (no più stili inline)
+		btn.setCssProps({ '--hwm-btn-color': c });
 		if (c === colors[0]) btn.classList.add('hwm_active');
 		colorBtns.push(btn);
 	}
@@ -202,7 +184,7 @@ async function buildEditorUI(opts: {
 	// Bottone chiudi (X): posizionato a destra via CSS absolute
 	const closeBtn = mkBtn(topbar, 'x', 'btn_close');
 	closeBtn.classList.add('hwm_close-btn');
-	closeBtn.addEventListener('click', () => opts.onClose());
+	closeBtn.addEventListener('click', () => { void opts.onClose(); });
 
 	// --- Scroll container e canvas ---
 	const scrollWrap  = el.createDiv({ cls: 'hwm_editor-scroll' });
@@ -248,11 +230,12 @@ async function buildEditorUI(opts: {
 		topbar.classList.toggle('hwm_editor-topbar--dark', dark);
 		toolbar.classList.toggle('hwm_toolbar--dark', dark);
 		handle.classList.toggle('hwm_resize-handle--dark', dark);
-		el.style.backgroundColor = getEffectiveBgColor(plugin.settings);
-		// Aggiorna i pallini colore palette
+		// Sfondo via CSS var (no stile inline)
+		el.setCssProps({ '--hwm-bg': getEffectiveBgColor(plugin.settings) });
+		// Aggiorna i pallini colore palette via CSS var
 		const newColors = dark ? DARK_COLORS : LIGHT_COLORS;
 		colorBtns.forEach((btn, i) => {
-			btn.style.backgroundColor = newColors[i] ?? '';
+			btn.setCssProps({ '--hwm-btn-color': newColors[i] ?? '' });
 			btn.setAttribute('title', newColors[i] ?? '');
 		});
 		// Aggiorna sfondo e righe nel canvas
@@ -292,9 +275,9 @@ async function buildEditorUI(opts: {
 	undoBtn.addEventListener('click', () => cv.undo());
 	redoBtn.addEventListener('click', () => cv.redo());
 	clearBtn.addEventListener('click', () => cv.clear());
-	convertBtn.addEventListener('click', () => opts.doConvert());
-	saveBtn.addEventListener('click', async () => { await opts.doSave(); new Notice(t('notice_saved')); });
-	deleteBtn.addEventListener('click', () => opts.doDelete());
+	convertBtn.addEventListener('click', () => { void opts.doConvert(); });
+	saveBtn.addEventListener('click', () => { void opts.doSave().then(() => new Notice(t('notice_saved'))); });
+	deleteBtn.addEventListener('click', () => { void opts.doDelete(); });
 
 	return { canvas, bgModeListener };
 }
@@ -321,14 +304,16 @@ export class DrawingEditorView extends ItemView {
 	}
 
 	getViewType() { return VIEW_TYPE_HANDWRITING; }
-	getDisplayText() { return 'Handwriting Editor'; }
+	getDisplayText() { return 'Handwriting editor'; }
 	getIcon() { return 'pencil'; }
 	getEmbedId() { return this.embedId; }
 
-	async setState(state: any, result: any) {
-		if (state?.id) this.embedId = state.id;
-		if (state?.svg) this.svgPath = state.svg;
-		if (state?.sourcePath) this.sourcePath = state.sourcePath;
+	async setState(state: unknown, result: ViewStateResult) {
+		// Cast a un tipo strutturato per accedere ai campi in modo type-safe
+		const s = state as { id?: string; svg?: string; sourcePath?: string } | null;
+		if (s?.id) this.embedId = s.id;
+		if (s?.svg) this.svgPath = s.svg;
+		if (s?.sourcePath) this.sourcePath = s.sourcePath;
 		// Costruisci la UI solo quando abbiamo i dati
 		if (this.embedId && this.svgPath) await this.buildEditor();
 		await super.setState(state, result);
@@ -372,11 +357,14 @@ export class DrawingEditorView extends ItemView {
 			onClose: async () => { await this.saveSvg(); this.leaf.detach(); },
 			// Adatta il canvas alla larghezza reale e la mantiene sincronizzata
 			// ad ogni cambio orientamento (portrait ↔ landscape).
+			// expandWorld=false: la larghezza logica del mondo resta canvasWidth
+			// → il viewBox dell'SVG salvato non cresce con la larghezza del tablet,
+			//   evitando che la preview inline si accorci e mostri sfondo nero sotto.
 			afterCanvas: (cv, scrollWrap) => {
 				this.displayRo = new ResizeObserver(() => {
 					const displayW = scrollWrap.clientWidth || el.clientWidth;
 					if (displayW === 0) return;
-					cv.setDisplayWidth(displayW);
+					cv.setDisplayWidth(displayW, false);
 				});
 				this.displayRo.observe(scrollWrap);
 				this.displayRo.observe(el);
@@ -392,7 +380,7 @@ export class DrawingEditorView extends ItemView {
 		// Auto-save debounced (2s dopo l'ultimo cambiamento)
 		canvas.onChange(() => {
 			if (this.saveTimer) clearTimeout(this.saveTimer);
-			this.saveTimer = setTimeout(() => this.saveSvg(), 2000);
+			this.saveTimer = setTimeout(() => { void this.saveSvg(); }, 2000);
 		});
 	}
 
@@ -401,7 +389,7 @@ export class DrawingEditorView extends ItemView {
 		await saveSvgToDisk(this.canvas, this.svgPath, this.embedId, this.plugin);
 	}
 
-		private async doConvert() {
+	private async doConvert() {
 		if (!this.canvas || this.canvas.getStrokes().length === 0) {
 			new Notice(t('error_no_strokes')); return;
 		}
@@ -433,8 +421,22 @@ export class DrawingEditorView extends ItemView {
 		}
 	}
 
+	// Overlay di conferma inline (come DrawingModal) — evita window.confirm() che
+	// non funziona in Electron e ruba il focus dalla finestra principale.
+	private showDeleteConfirm(): Promise<boolean> {
+		return new Promise(resolve => {
+			const overlay = this.contentEl.createDiv({ cls: 'hwm_confirm-overlay' });
+			overlay.createEl('span', { text: t('confirm_delete'), cls: 'hwm_confirm-msg' });
+			const okBtn     = overlay.createEl('button', { text: t('confirm_ok'), cls: 'mod-warning' });
+			const cancelBtn = overlay.createEl('button', { text: t('confirm_cancel') });
+			okBtn.addEventListener('click', () => { overlay.remove(); resolve(true); });
+			cancelBtn.addEventListener('click', () => { overlay.remove(); resolve(false); });
+			okBtn.focus();
+		});
+	}
+
 	private async doDelete() {
-		if (!confirm(t('confirm_delete'))) return;
+		if (!await this.showDeleteConfirm()) return;
 		if (this.canvas) { this.canvas.destroy(); this.canvas = null; }
 		await replaceInMdFile(this.sourcePath, this.svgPath, this.embedId, '\n', this.plugin);
 		const svgFile = this.plugin.app.vault.getAbstractFileByPath(this.svgPath);
@@ -522,7 +524,7 @@ export class DrawingModal extends Modal {
 		// Auto-save debounced (2s dopo l'ultimo cambiamento)
 		canvas.onChange(() => {
 			if (this.saveTimer) clearTimeout(this.saveTimer);
-			this.saveTimer = setTimeout(() => this.saveSvg(), 2000);
+			this.saveTimer = setTimeout(() => { void this.saveSvg(); }, 2000);
 		});
 	}
 
@@ -531,7 +533,7 @@ export class DrawingModal extends Modal {
 		await saveSvgToDisk(this.canvas, this.svgPath, this.embedId, this.plugin);
 	}
 
-		private async doConvert() {
+	private async doConvert() {
 		if (!this.canvas || this.canvas.getStrokes().length === 0) { new Notice(t('error_no_strokes')); return; }
 		// Overlay a tutto schermo sul modal: spinner + blocco interazione
 		const overlay = this.contentEl.createDiv({ cls: 'hwm_confirm-overlay hwm_convert-overlay--editor' });
@@ -596,7 +598,7 @@ export class DrawingModal extends Modal {
 					mdView = ws.getActiveViewOfType(MarkdownView);
 				}
 				// Focus diretto sul contenteditable CM6
-				const cm = mdView?.contentEl.querySelector('.cm-content') as HTMLElement;
+				const cm = mdView?.contentEl.querySelector<HTMLElement>('.cm-content');
 				cm?.focus();
 			}, 300);
 		};

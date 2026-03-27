@@ -137,12 +137,14 @@ export class DrawingCanvas {
 	onResize(cb: () => void) { this.resizeCb = cb; }
 
 	// Adatta il canvas alla larghezza di display indicata (rotazione schermo, apertura modal).
-	// - Se il display è più largo del mondo attuale → worldWidth cresce (nuova area disegnabile).
-	// - Se il display è più stretto → worldWidth resta invariato; i tratti vengono compressi
-	//   orizzontalmente (viewScale < 1) per mostrare tutto senza tagliare nulla nel SVG.
-	setDisplayWidth(displayWidth: number) {
+	// - expandWorld=true (default, Desktop modal): worldWidth cresce → SVG più largo.
+	// - expandWorld=false (Android ResizeObserver): worldWidth invariato → SVG sempre a canvasWidth.
+	//   Su Android serve evitare che il viewBox dell'SVG cambii tra sessioni su schermi diversi
+	//   (altrimenti l'aspect ratio del SVG cambia e la preview inline si accorcia mostrando sfondo
+	//   nero sotto l'img).
+	setDisplayWidth(displayWidth: number, expandWorld = true) {
 		if (displayWidth === this.logicalWidth) return;
-		if (displayWidth > this.worldWidth) {
+		if (expandWorld && displayWidth > this.worldWidth) {
 			// Espansione: il mondo si allarga con il display
 			this.worldWidth = displayWidth;
 		}
