@@ -365,7 +365,7 @@ export function expandKeywords(text: string, fnStart = 1): string {
 					// Qualsiasi altra keyword chiude implicitamente senza consumarla
 					if (/^\/\//.test(rowLine)) break;
 					// Fine implicita: riga vuota
-					if (!rowLine) break;
+					if (!rowLine) { i++; continue; } // riga vuota: salta (Gemini le inserisce tra header e dati)
 					// Continuazione riga: se finisce con virgola, leggi la riga successiva
 					while (rowLine.trimEnd().endsWith(',') && i + 1 < lines.length) {
 						const nextRow = lines[i + 1].trim();
@@ -373,7 +373,10 @@ export function expandKeywords(text: string, fnStart = 1): string {
 						rowLine = rowLine.trimEnd() + ' ' + nextRow;
 						i++;
 					}
-					rows.push(rowLine.split(',').map(c => c.trim()).filter(c => c));
+					// Mantiene celle vuote intermedie (es. "val1,,val3" → col2 vuota); rimuove solo quelle in coda
+					const cells = rowLine.split(',').map(c => c.trim());
+					while (cells.length > 0 && cells[cells.length - 1] === '') cells.pop();
+					rows.push(cells);
 					i++;
 				}
 				out.push(buildTable(headers, rows));
