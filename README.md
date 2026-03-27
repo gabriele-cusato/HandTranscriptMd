@@ -205,6 +205,8 @@ Open **Settings → Handwriting to Markdown** to configure:
 | **Gemini API key** | Required for OCR. Get it free at [aistudio.google.com](https://aistudio.google.com). |
 | **OCR languages** | Comma-separated BCP-47 codes (e.g. `it, en, fr`). Tells Gemini which languages to expect. |
 
+> **Note — Free API key limitations:** With the free tier of Google AI Studio, your data may be used by Google to improve their models. Additionally, under high traffic you may see a **"Too many requests — please try again later"** error. To avoid rate limits, enable billing on [Google AI Studio](https://aistudio.google.com); costs are minimal for occasional OCR use.
+
 ---
 
 ### Platform Support
