@@ -97,12 +97,16 @@ export function parseSvgStrokes(svgContent: string): Stroke[] {
 		if (!match) return [];
 
 		const json = unescapeXml(match[1] ?? '');
-		const parsed = JSON.parse(json);
+		// JSON.parse ritorna unknown; validazione esplicita prima di usare i dati
+		const parsed: unknown = JSON.parse(json);
 
 		// Validazione base: deve essere un array di oggetti con points, color, width
 		if (!Array.isArray(parsed)) return [];
-		return parsed.filter((s: Stroke) =>
-			Array.isArray(s.points) && typeof s.color === 'string' && typeof s.width === 'number'
+		return (parsed as unknown[]).filter((s): s is Stroke =>
+			s !== null && typeof s === 'object' &&
+			Array.isArray((s as Stroke).points) &&
+			typeof (s as Stroke).color === 'string' &&
+			typeof (s as Stroke).width === 'number'
 		);
 	} catch {
 		return [];

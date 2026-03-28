@@ -440,7 +440,7 @@ export class DrawingEditorView extends ItemView {
 		if (this.canvas) { this.canvas.destroy(); this.canvas = null; }
 		await replaceInMdFile(this.sourcePath, this.svgPath, this.embedId, '\n', this.plugin);
 		const svgFile = this.plugin.app.vault.getAbstractFileByPath(this.svgPath);
-		if (svgFile instanceof TFile) await this.plugin.app.vault.delete(svgFile);
+		if (svgFile instanceof TFile) await this.plugin.app.fileManager.trashFile(svgFile);
 		this.leaf.detach();
 		new Notice(t('notice_deleted'));
 	}
@@ -615,7 +615,7 @@ export class DrawingModal extends Modal {
 
 		await replaceInMdFile(srcPath, this.svgPath, this.embedId, '\n', this.plugin);
 		const svgFile = this.app.vault.getAbstractFileByPath(this.svgPath);
-		if (svgFile instanceof TFile) await this.app.vault.delete(svgFile);
+		if (svgFile instanceof TFile) await this.app.fileManager.trashFile(svgFile);
 
 		// Fallback: se vault.modify non spara entro 3s (caso anomalo), forza comunque il focus
 		setTimeout(() => { this.app.vault.offref(ref); doFocus(); }, 3000);

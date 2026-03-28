@@ -239,7 +239,7 @@ async function renderLegacyEmbed(
 	// Parsa il JSON dal code block
 	let data: EmbedData;
 	try {
-		data = JSON.parse(source.trim());
+		data = JSON.parse(source.trim()) as EmbedData;
 	} catch {
 		el.createEl('p', { text: 'Handwriting: JSON non valido', cls: 'hwm_error' });
 		return;
@@ -487,7 +487,7 @@ async function removeWikiEmbed(
 
 	// Cancella il file SVG
 	const svgFile = plugin.app.vault.getAbstractFileByPath(svgPath);
-	if (svgFile instanceof TFile) await plugin.app.vault.delete(svgFile);
+	if (svgFile instanceof TFile) await plugin.app.fileManager.trashFile(svgFile);
 
 	new Notice(t('notice_deleted'));
 }
@@ -506,7 +506,7 @@ async function removeLegacyEmbed(
 	if (updated !== content) await plugin.app.vault.modify(mdFile, updated);
 
 	const svgFile = plugin.app.vault.getAbstractFileByPath(data.svg);
-	if (svgFile instanceof TFile) await plugin.app.vault.delete(svgFile);
+	if (svgFile instanceof TFile) await plugin.app.fileManager.trashFile(svgFile);
 
 	new Notice(t('notice_deleted'));
 }
@@ -748,7 +748,6 @@ function createPortalPanel(
 			wrapper.classList.add('hwm_overflow-hidden');
 			if (startH <= naturalH) {
 				// SVG non espanso: altezza già nella norma, nessuna area vuota da tagliare.
-				// eslint-disable-next-line obsidianmd/no-static-styles-assignment
 				wrapper.style.height = startH + 'px';
 			} else {
 				// SVG auto-espanso: anima da startH → naturalH per nascondere l'area vuota.
@@ -758,7 +757,6 @@ function createPortalPanel(
 					{ duration: 300, easing: 'ease', fill: 'forwards' }
 				);
 				anim.onfinish = () => {
-					// eslint-disable-next-line obsidianmd/no-static-styles-assignment
 					wrapper.style.height = naturalH + 'px';
 					anim.cancel(); // cede il controllo all'inline style
 				};

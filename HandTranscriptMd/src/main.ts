@@ -7,7 +7,7 @@
    - Tab impostazioni
    ============================================= */
 
-import { Plugin, TFile, TFolder, Notice, FuzzySuggestModal, FuzzyMatch, MarkdownView, Editor } from 'obsidian';
+import { Plugin, TFile, TFolder, Notice, FuzzySuggestModal, FuzzyMatch, Editor } from 'obsidian';
 import { t, setLocale } from './i18n';
 import { DEFAULT_SETTINGS, HandwritingSettings, HandwritingSettingTab } from './settings';
 import { registerEmbed, insertHandwritingBlock } from './embed';

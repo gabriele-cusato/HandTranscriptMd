@@ -356,7 +356,7 @@ export function expandKeywords(text: string, fnStart = 1): string {
 			case 'TABLE': {
 				// Continuazione header se //TABLE Col1, Col2, finisce con virgola -> prosegue sulla riga successiva
 				const [fullHeader, startI] = collectContinuation(lines, i + 1, content);
-				const headers = fullHeader.split(',').map(h => h.trim()).filter(h => h);
+				const headers = fullHeader.split(',').map(h => h.trim());
 				const rows: string[][] = [];
 				i = startI;
 				while (i < lines.length) {
@@ -367,14 +367,9 @@ export function expandKeywords(text: string, fnStart = 1): string {
 					if (/^\/\//.test(rowLine)) break;
 					// Fine implicita: riga vuota
 					if (!rowLine) { i++; continue; } // riga vuota: salta (Gemini le inserisce tra header e dati)
-					// Continuazione riga: se finisce con virgola, leggi la riga successiva
-					while (rowLine.trimEnd().endsWith(',') && i + 1 < lines.length) {
-						const nextRow = lines[i + 1].trim();
-						if (!nextRow || nextRow.startsWith('//')) break;
-						rowLine = rowLine.trimEnd() + ' ' + nextRow;
-						i++;
-					}
-					// Mantiene celle vuote intermedie (es. "val1,,val3" → col2 vuota); rimuove solo quelle in coda
+					// Ogni riga fisica è una riga della tabella — nessun merge automatico.
+					// Celle vuote intermedie (es. "val1,,val3") vengono preservate.
+					// Celle vuote in coda vengono rimosse (buildTable padda al numero di colonne).
 					const cells = rowLine.split(',').map(c => c.trim());
 					while (cells.length > 0 && cells[cells.length - 1] === '') cells.pop();
 					rows.push(cells);
@@ -447,17 +442,19 @@ function collectContinuation(lines: string[], nextI: number, content: string): [
 	return [full, i];
 }
 
-/** Costruisce lista puntata da "a, b, c" → "- a\n- b\n- c" */
+/** Costruisce lista puntata da "a, b, c" → "- a\n- b\n- c".
+ *  Valori vuoti (es. "a, , c") diventano voci vuote: "- " */
 function buildBulletList(content: string): string {
 	return content.split(',')
-		.map(item => item.trim()).filter(item => item)
+		.map(item => item.trim())
 		.map(item => `- ${item}`).join('\n');
 }
 
-/** Costruisce lista numerata da "a, b, c" → "1. a\n2. b\n3. c"; start: numero iniziale */
+/** Costruisce lista numerata da "a, b, c" → "1. a\n2. b\n3. c"; start: numero iniziale.
+ *  Valori vuoti (es. "a, , c") diventano righe vuote: "2. " */
 function buildNumList(content: string, start = 1): string {
 	return content.split(',')
-		.map(item => item.trim()).filter(item => item)
+		.map(item => item.trim())
 		.map((item, idx) => `${start + idx}. ${item}`).join('\n');
 }
 
@@ -468,7 +465,7 @@ function buildNumList(content: string, start = 1): string {
  */
 function buildChecklist(content: string): string {
 	return content.split(',')
-		.map(item => item.trim()).filter(item => item)
+		.map(item => item.trim())
 		.map(item => {
 			// Prefisso checked: x o [x] (con o senza parentesi quadre) seguito da spazio
 			if (/^(?:[xX]|\[[xX]\])\s+/.test(item)) {
