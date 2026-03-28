@@ -14,6 +14,8 @@
 	"gemini_key_desc": "Required for handwriting OCR recognition. Get it from Google AI Studio (aistudio.google.com).",
 	"ocr_langs_name": "OCR languages",
 	"ocr_langs_desc": "Comma-separated BCP-47 language codes (e.g. \"it, en, fr\"). Used by the AI model for OCR.",
+	"gemini_key_placeholder": "Enter API key",
+	"ocr_langs_placeholder": "e.g. it, en, fr",
 	"debug_mode_name": "Debug mode",
 	"debug_mode_desc": "Show real-time notifications for IME/touch events (useful for diagnosing issues on Android).",
 	"keywords_summary": "Keywords recognized by the OCR parser",

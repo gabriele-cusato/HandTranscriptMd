@@ -21,6 +21,8 @@
 	"gemini_key_desc": "Необходим для OCR-распознавания рукописного текста. Получите в Google AI Studio (aistudio.google.com).",
 	"ocr_langs_name": "Языки OCR",
 	"ocr_langs_desc": "Коды языков BCP-47, разделённые запятой (например \"it, en, fr\"). Используются моделью ИИ для OCR.",
+	"gemini_key_placeholder": "Введите API-ключ",
+	"ocr_langs_placeholder": "напр. it, en, fr",
 	"debug_mode_name": "Режим отладки",
 	"debug_mode_desc": "Показывать уведомления в реальном времени для событий IME/касания (полезно для диагностики проблем на Android).",
 	"keywords_summary": "Ключевые слова, распознаваемые парсером OCR",

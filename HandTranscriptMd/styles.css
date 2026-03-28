@@ -22,6 +22,11 @@
 	overflow: hidden;
 }
 
+/* Disabilita transizioni CSS temporaneamente (usato in syncWrapperHeight) */
+.hwm_no-transition {
+	transition: none !important;
+}
+
 /* Animazione altezza del wrapper clip (collapse/expand nuovo formato) */
 .hwm_clip-wrapper {
 	transition: height 0.3s ease;

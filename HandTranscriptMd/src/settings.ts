@@ -121,7 +121,7 @@ export class HandwritingSettingTab extends PluginSettingTab {
 				// Prima voce: automatico
 				drop.addOption('auto', t('ui_language_auto'));
 				// Una voce per ogni lingua disponibile nel plugin, con nome nativo
-				// eslint-disable-next-line @typescript-eslint/no-misused-promises
+				// eslint-disable-next-line @typescript-eslint/no-misused-promises -- forEach callback is sync but DropdownComponent.addOption return type triggers the rule; Promise result intentionally ignored
 				availableLocales().forEach(code => drop.addOption(code, localeNames[code] ?? code));
 				drop.setValue(this.plugin.settings.uiLanguage);
 				drop.onChange((value) => { void (async () => {
@@ -195,8 +195,7 @@ export class HandwritingSettingTab extends PluginSettingTab {
 			.setDesc(t('gemini_key_desc'))
 			.addText(text => {
 				text
-					// eslint-disable-next-line obsidianmd/ui/sentence-case
-					.setPlaceholder('AIza...')
+					.setPlaceholder(t('gemini_key_placeholder'))
 					.setValue(this.plugin.settings.geminiApiKey)
 					.onChange(async (value) => {
 						this.plugin.settings.geminiApiKey = value.trim();
@@ -213,8 +212,7 @@ export class HandwritingSettingTab extends PluginSettingTab {
 			.addText(text => text
 				// Mostra l'array come stringa "it, en"
 				.setValue(this.plugin.settings.ocrLanguages.join(', '))
-				// eslint-disable-next-line obsidianmd/ui/sentence-case
-				.setPlaceholder('it, en')
+				.setPlaceholder(t('ocr_langs_placeholder'))
 				.onChange(async (value) => {
 					// Parsa la stringa in array, rimuovendo spazi e voci vuote
 					const langs = value

@@ -58,8 +58,8 @@ export function registerEmbed(plugin: HandwritingPlugin) {
 			// Legge dimensioni reali dal viewBox per preservare l'altezza raggiunta con auto-expand.
 			// Usare plugin.settings.canvasHeight causerebbe il "collasso" degli SVG cresciuti.
 			const dimMatch = content.match(/viewBox="0 0 (\d+) (\d+)"/);
-			const svgWidth = dimMatch ? parseInt(dimMatch[1]!) : plugin.settings.canvasWidth;
-			const svgHeight = dimMatch ? parseInt(dimMatch[2]!) : plugin.settings.canvasHeight;
+			const svgWidth = dimMatch ? parseInt(dimMatch[1]) : plugin.settings.canvasWidth;
+			const svgHeight = dimMatch ? parseInt(dimMatch[2]) : plugin.settings.canvasHeight;
 			const newSvg = strokesToSvg(
 				remapped,
 				svgWidth,
@@ -72,9 +72,9 @@ export function registerEmbed(plugin: HandwritingPlugin) {
 			plugin.refreshPreview(embedId, newSvg);
 		}
 	};
-	// eslint-disable-next-line @typescript-eslint/no-misused-promises
+	// eslint-disable-next-line @typescript-eslint/no-misused-promises -- async listener stored in a Set that expects void; Promise result intentionally ignored
 	plugin.bgModeListeners.add(onBgModeRemap);
-	// eslint-disable-next-line @typescript-eslint/no-misused-promises
+	// eslint-disable-next-line @typescript-eslint/no-misused-promises -- same reason: async callback passed to plugin.register cleanup
 	plugin.register(() => plugin.bgModeListeners.delete(onBgModeRemap));
 
 	// --- NUOVO: MutationObserver su document.body ---
@@ -147,18 +147,15 @@ function setupMutationObserver(plugin: HandwritingPlugin) {
 			// Aggiorna l'altezza del wrapper (se espanso) dopo ogni refresh dell'img.
 			// Su Android, CM6 Live Preview non rileva i cambi organici di altezza.
 			const syncWrapperHeight = () => {
-				// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-				const wrapper = span.querySelector('.hwm_clip-wrapper') as HTMLElement | null;
+				const wrapper = span.querySelector<HTMLElement>('.hwm_clip-wrapper');
 				if (!wrapper || wrapper.classList.contains('hwm_overflow-hidden')) return;
 				const newH = wrapper.scrollHeight;
-				// eslint-disable-next-line obsidianmd/no-static-styles-assignment
-				wrapper.style.transition = 'none';
-				wrapper.style.height = newH + 'px';
+				// Disable transition temporarily so the height sync is instant (no visual flash).
+				wrapper.classList.add('hwm_no-transition');
+				wrapper.style.setProperty('height', newH + 'px');
 				requestAnimationFrame(() => {
-					// eslint-disable-next-line obsidianmd/no-static-styles-assignment
-					wrapper.style.height = '';
-					// eslint-disable-next-line obsidianmd/no-static-styles-assignment
-					wrapper.style.transition = '';
+					wrapper.style.removeProperty('height');
+					wrapper.classList.remove('hwm_no-transition');
 				});
 			};
 
@@ -691,8 +688,7 @@ function createPortalPanel(
 	// Animiamo il wrapper (non il container span) così il ResizeObserver
 	// di Obsidian Mobile non si attiva sul container e non re-imposta le dimensioni dell'img.
 	const ensureWrapper = (): HTMLElement | null => {
-		// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-		let wrapper = container.querySelector('.hwm_clip-wrapper') as HTMLElement | null;
+		let wrapper = container.querySelector<HTMLElement>('.hwm_clip-wrapper');
 		if (wrapper) return wrapper;
 		const img = container.querySelector('img');
 		if (!img || !img.parentElement) return null;
@@ -710,15 +706,14 @@ function createPortalPanel(
 		const wrapper = ensureWrapper();
 		if (wrapper) {
 			// Anima da altezza corrente (px) → altezza piena (scrollHeight).
-			wrapper.style.height = wrapper.scrollHeight + 'px';
+			wrapper.style.setProperty('height', wrapper.scrollHeight + 'px');
 			// Cleanup: rimuove altezza fissa e overflow al termine dell'animazione.
 			// Su Android WebView transitionend non è affidabile → setTimeout fallback.
 			let done = false;
 			const cleanup = () => {
 				if (done) return;
 				done = true;
-				// eslint-disable-next-line obsidianmd/no-static-styles-assignment
-				wrapper.style.height = '';
+				wrapper.style.removeProperty('height');
 				wrapper.classList.remove('hwm_overflow-hidden');
 			};
 			wrapper.addEventListener('transitionend', cleanup, { once: true });
@@ -748,7 +743,7 @@ function createPortalPanel(
 			wrapper.classList.add('hwm_overflow-hidden');
 			if (startH <= naturalH) {
 				// SVG non espanso: altezza già nella norma, nessuna area vuota da tagliare.
-				wrapper.style.height = startH + 'px';
+				wrapper.style.setProperty('height', startH + 'px');
 			} else {
 				// SVG auto-espanso: anima da startH → naturalH per nascondere l'area vuota.
 				// WAAPI garantisce keyframe px→px senza dipendere da height:auto come "from".
@@ -757,7 +752,7 @@ function createPortalPanel(
 					{ duration: 300, easing: 'ease', fill: 'forwards' }
 				);
 				anim.onfinish = () => {
-					wrapper.style.height = naturalH + 'px';
+					wrapper.style.setProperty('height', naturalH + 'px');
 					anim.cancel(); // cede il controllo all'inline style
 				};
 			}

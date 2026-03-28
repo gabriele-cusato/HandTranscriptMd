@@ -21,6 +21,8 @@
 	"gemini_key_desc": "Erforderlich für die OCR-Handschrifterkennung. Erhalten Sie ihn von Google AI Studio (aistudio.google.com).",
 	"ocr_langs_name": "OCR-Sprachen",
 	"ocr_langs_desc": "Kommagetrennte BCP-47-Sprachcodes (z. B. \"it, en, fr\"). Wird vom KI-Modell für OCR verwendet.",
+	"gemini_key_placeholder": "API-Schlüssel eingeben",
+	"ocr_langs_placeholder": "z. B. it, en, fr",
 	"debug_mode_name": "Debug-Modus",
 	"debug_mode_desc": "Echtzeit-Benachrichtigungen für IME/Touch-Ereignisse anzeigen (nützlich zur Diagnose von Android-Problemen).",
 	"keywords_summary": "Vom OCR-Parser erkannte Schlüsselwörter",

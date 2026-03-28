@@ -17,7 +17,7 @@
 export function normalizeMarkdownSymbols(rawText: string): string {
 	// Rimuove BOM e caratteri zero-width Unicode che Gemini inserisce all'inizio
 	// del testo o all'inizio di righe (U+FEFF, U+200B, U+200C, U+200D, U+2060)
-	// eslint-disable-next-line no-misleading-character-class
+	// eslint-disable-next-line no-misleading-character-class -- intentional: each codepoint in this class is a distinct zero-width character, not a combining sequence
 	const cleaned = rawText.replace(/[\uFEFF\u200B\u200C\u200D\u2060]/gu, '');
 
 	const lines = cleaned.split('\n');

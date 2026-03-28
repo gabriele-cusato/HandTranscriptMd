@@ -21,6 +21,8 @@
 	"gemini_key_desc": "Nécessaire pour la reconnaissance OCR de l'écriture manuscrite. Obtenez-la sur Google AI Studio (aistudio.google.com).",
 	"ocr_langs_name": "Langues OCR",
 	"ocr_langs_desc": "Codes de langue BCP-47 séparés par des virgules (ex. : \"it, en, fr\"). Utilisés par le modèle IA pour l'OCR.",
+	"gemini_key_placeholder": "Saisir la clé API",
+	"ocr_langs_placeholder": "ex. it, en, fr",
 	"debug_mode_name": "Mode débogage",
 	"debug_mode_desc": "Affiche des notifications en temps réel pour les événements IME/tactile (utile pour diagnostiquer les problèmes sur Android).",
 	"keywords_summary": "Mots-clés reconnus par le parser OCR",

@@ -21,6 +21,8 @@
 	"gemini_key_desc": "手写OCR识别所需。从Google AI Studio (aistudio.google.com)获取。",
 	"ocr_langs_name": "OCR语言",
 	"ocr_langs_desc": "逗号分隔的BCP-47语言代码（例如\"it, en, fr\"）。用于AI模型的OCR识别。",
+	"gemini_key_placeholder": "输入API密钥",
+	"ocr_langs_placeholder": "例如：it, en, fr",
 	"debug_mode_name": "调试模式",
 	"debug_mode_desc": "显示IME/触摸事件的实时通知（用于诊断Android问题）。",
 	"keywords_summary": "OCR解析器识别的关键词",

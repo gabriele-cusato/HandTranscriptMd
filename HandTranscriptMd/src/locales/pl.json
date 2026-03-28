@@ -21,6 +21,8 @@
 	"gemini_key_desc": "Wymagany do rozpoznawania OCR pisma odręcznego. Uzyskaj go w Google AI Studio (aistudio.google.com).",
 	"ocr_langs_name": "Języki OCR",
 	"ocr_langs_desc": "Kody języków BCP-47 oddzielone przecinkami (np. \"it, en, fr\"). Używane przez model AI do OCR.",
+	"gemini_key_placeholder": "Wprowadź klucz API",
+	"ocr_langs_placeholder": "np. it, en, fr",
 	"debug_mode_name": "Tryb debugowania",
 	"debug_mode_desc": "Pokazuje powiadomienia w czasie rzeczywistym dla zdarzeń IME/dotyk (przydatne do diagnozowania problemów na Androidzie).",
 	"keywords_summary": "Słowa kluczowe rozpoznawane przez parser OCR",

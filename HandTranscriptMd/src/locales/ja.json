@@ -21,6 +21,8 @@
 	"gemini_key_desc": "手書きOCR認識に必要です。Google AI Studio（aistudio.google.com）から取得してください。",
 	"ocr_langs_name": "OCR言語",
 	"ocr_langs_desc": "カンマ区切りのBCP-47言語コード（例：「it, en, fr」）。AIモデルのOCRに使用されます。",
+	"gemini_key_placeholder": "APIキーを入力",
+	"ocr_langs_placeholder": "例：it, en, fr",
 	"debug_mode_name": "デバッグモード",
 	"debug_mode_desc": "IME/タッチイベントのリアルタイム通知を表示します（Androidの問題診断に役立ちます）。",
 	"keywords_summary": "OCRパーサーが認識するキーワード",
