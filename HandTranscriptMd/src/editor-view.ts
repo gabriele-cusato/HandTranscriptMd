@@ -478,20 +478,22 @@ export class DrawingModal extends Modal {
 		await this.buildEditor();
 	}
 
-	async onClose() {
-		if (this.canvas) {
-			await this.saveSvg();
-			this.canvas.destroy();
-			this.canvas = null;
-		}
-		if (this.saveTimer) clearTimeout(this.saveTimer);
-		// Deregistra il listener bgMode
-		if (this.bgModeListener) {
-			this.plugin.bgModeListeners.delete(this.bgModeListener);
-			this.bgModeListener = null;
-		}
-		// Notifica il chiamante che il modal è stato chiuso
-		this.onClosed?.();
+	onClose() {
+		void (async () => {
+			if (this.canvas) {
+				await this.saveSvg();
+				this.canvas.destroy();
+				this.canvas = null;
+			}
+			if (this.saveTimer) clearTimeout(this.saveTimer);
+			// Deregistra il listener bgMode
+			if (this.bgModeListener) {
+				this.plugin.bgModeListeners.delete(this.bgModeListener);
+				this.bgModeListener = null;
+			}
+			// Notifica il chiamante che il modal è stato chiuso
+			this.onClosed?.();
+		})();
 	}
 
 	private async buildEditor() {

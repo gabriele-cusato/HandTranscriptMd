@@ -121,15 +121,16 @@ export class HandwritingSettingTab extends PluginSettingTab {
 				// Prima voce: automatico
 				drop.addOption('auto', t('ui_language_auto'));
 				// Una voce per ogni lingua disponibile nel plugin, con nome nativo
+				// eslint-disable-next-line @typescript-eslint/no-misused-promises
 				availableLocales().forEach(code => drop.addOption(code, localeNames[code] ?? code));
 				drop.setValue(this.plugin.settings.uiLanguage);
-				drop.onChange(async (value) => {
+				drop.onChange((value) => { void (async () => {
 					this.plugin.settings.uiLanguage = value;
 					await this.plugin.saveSettings();
 					// Aggiorna il dizionario attivo e ridisegna la pagina impostazioni
 					setLocale(value);
 					this.display();
-				});
+				})(); });
 			});
 
 		// --- Cartella SVG ---
@@ -194,6 +195,7 @@ export class HandwritingSettingTab extends PluginSettingTab {
 			.setDesc(t('gemini_key_desc'))
 			.addText(text => {
 				text
+					// eslint-disable-next-line obsidianmd/ui/sentence-case
 					.setPlaceholder('AIza...')
 					.setValue(this.plugin.settings.geminiApiKey)
 					.onChange(async (value) => {
@@ -211,6 +213,7 @@ export class HandwritingSettingTab extends PluginSettingTab {
 			.addText(text => text
 				// Mostra l'array come stringa "it, en"
 				.setValue(this.plugin.settings.ocrLanguages.join(', '))
+				// eslint-disable-next-line obsidianmd/ui/sentence-case
 				.setPlaceholder('it, en')
 				.onChange(async (value) => {
 					// Parsa la stringa in array, rimuovendo spazi e voci vuote

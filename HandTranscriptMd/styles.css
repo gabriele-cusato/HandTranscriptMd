@@ -251,6 +251,8 @@
 	cursor: crosshair;
 	/* Sfondo bianco fisso */
 	background: #ffffff;
+	/* Previene scroll/zoom del browser durante il disegno con pennino/dito */
+	touch-action: none !important;
 }
 
 /* --- Handle di resize in basso --- */

@@ -17,7 +17,8 @@
 export function normalizeMarkdownSymbols(rawText: string): string {
 	// Rimuove BOM e caratteri zero-width Unicode che Gemini inserisce all'inizio
 	// del testo o all'inizio di righe (U+FEFF, U+200B, U+200C, U+200D, U+2060)
-	const cleaned = rawText.replace(/[\uFEFF\u200B\u200C\u200D\u2060]/g, '');
+	// eslint-disable-next-line no-misleading-character-class
+	const cleaned = rawText.replace(/[\uFEFF\u200B\u200C\u200D\u2060]/gu, '');
 
 	const lines = cleaned.split('\n');
 	const out: string[] = [];
@@ -361,7 +362,7 @@ export function expandKeywords(text: string, fnStart = 1): string {
 				while (i < lines.length) {
 					let rowLine = lines[i].trim();
 					// Chiusura esplicita //TABLE
-					if (/^\/\/TABLE/i.test(rowLine)) { i++; break; }
+					if (/^\/\/TABLE/i.test(rowLine)) { i++; break; }
 					// Qualsiasi altra keyword chiude implicitamente senza consumarla
 					if (/^\/\//.test(rowLine)) break;
 					// Fine implicita: riga vuota

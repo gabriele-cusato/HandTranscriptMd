@@ -108,8 +108,7 @@ export class DrawingCanvas {
 		this.canvas.width  = Math.round(width  * this.dpr);
 		this.canvas.height = Math.round(height * this.dpr);
 		this.canvas.classList.add('hwm_canvas');
-		// touch-action: none sul canvas previene scroll/zoom durante il disegno
-		this.canvas.style.setProperty('touch-action', 'none', 'important');
+		// touch-action gestito in styles.css (.hwm_canvas { touch-action: none !important })
 		container.appendChild(this.canvas);
 
 		this.ctx = this.canvas.getContext('2d')!;
