@@ -121,8 +121,7 @@ export class HandwritingSettingTab extends PluginSettingTab {
 				// Prima voce: automatico
 				drop.addOption('auto', t('ui_language_auto'));
 				// Una voce per ogni lingua disponibile nel plugin, con nome nativo
-				// eslint-disable-next-line @typescript-eslint/no-misused-promises -- forEach callback is sync but DropdownComponent.addOption return type triggers the rule; Promise result intentionally ignored
-				availableLocales().forEach(code => drop.addOption(code, localeNames[code] ?? code));
+				availableLocales().forEach(code => { drop.addOption(code, localeNames[code] ?? code); });
 				drop.setValue(this.plugin.settings.uiLanguage);
 				drop.onChange((value) => { void (async () => {
 					this.plugin.settings.uiLanguage = value;
